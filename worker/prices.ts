@@ -48,5 +48,6 @@ export async function getPrices(c: Context<{ Bindings: Env }>) {
 
   const prices = [...byTicker].map(([t, rows]) => `${JSON.stringify(t)}:${joinRows(rows)}`).join(',');
   const body = `{"asOf":${JSON.stringify(asOf)},"prices":{${prices}},"fx":${joinRows(fxRows)},"unavailable":${JSON.stringify(unavailable)}}`;
-  return c.body(body, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' });
+  // An empty answer (no prices yet) must not be cached, or a browser keeps showing it after the data arrives.
+  return c.body(body, 200, { 'Content-Type': 'application/json', 'Cache-Control': asOf ? 'public, max-age=3600' : 'no-store' });
 }

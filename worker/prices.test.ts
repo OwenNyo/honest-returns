@@ -116,6 +116,13 @@ test('200 responses are cacheable for an hour', async () => {
   expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600');
 });
 
+test('an empty answer is not cacheable', async () => {
+  const res = await get('tickers=NOPE9&from=2019-01-02');
+  expect(res.status).toBe(200);
+  expect(((await res.json()) as any).asOf).toBeNull();
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+});
+
 test('the body matches the shared PricesResponse schema', async () => {
   const b = await body('tickers=TSTA,NOPE9,TSTC&from=2019-01-02');
   expect(PricesResponse.safeParse(b).success).toBe(true);
