@@ -58,6 +58,15 @@ export interface Warning {
   date?: IsoDate;
   message: string;
 }
+export interface YearReturn { year: number; twr: Decimal; days: number }
 export type ComputeResult =
-  | { ok: true; series: ValuationPoint[]; twr: RateResult; xirr: XirrResult; warnings: Warning[] }
+  | {
+      ok: true;
+      series: ValuationPoint[];
+      twr: RateResult;
+      xirr: XirrResult;
+      warnings: Warning[];
+      yearReturns?: YearReturn[]; // full scope 7
+      explanation?: string; // full scope 7
+    }
   | { ok: false; rejected: Rejection[] };

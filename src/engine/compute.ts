@@ -1,4 +1,5 @@
 import { daysBetween } from '../shared/dates';
+import { explainGap, yearlyTwr } from './explain';
 import { annualise, dailyReturns, twr } from './twr';
 import type { ComputeInput, ComputeResult, Warning } from './types';
 import { valueDaily } from './valuation';
@@ -25,5 +26,9 @@ export function compute(input: ComputeInput): ComputeResult {
         'More than one rate between -99% and 1000% balances these cash flows; showing the one found from a 10% starting guess.',
     });
   }
-  return { ok: true, series, twr: annualise(twr(series), daysBetween(first, input.endDate)), xirr: x, warnings };
+  const t = annualise(twr(series), daysBetween(first, input.endDate));
+  const yearReturns = yearlyTwr(series);
+  const deposits = input.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
+  const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
+  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation };
 }
