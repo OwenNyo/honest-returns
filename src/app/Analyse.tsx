@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import type { ComputeInput, ComputeResult, FlowTiming, LedgerRow } from '../engine/types';
-import type { FileState, SampleState } from './App';
+import type { FileState } from './App';
 import type { InputFile } from './combine';
 import { Benchmark, useBenchmark } from './BenchmarkSelect';
 import { BrokerPicker, type Broker } from './BrokerPicker';
@@ -12,11 +12,9 @@ import { Hero } from './Hero';
 import { PrintButton } from './PrintButton';
 import { RawPricesPanel } from './RawPricesPanel';
 import { Rejections } from './Rejections';
-import { ResultTabs, type Tab } from './ResultTabs';
 import { SectionList } from './SectionList';
 import { ShareButtons } from './ShareButtons';
 import { SECTIONS } from './sections';
-import { Skeleton } from './Skeleton';
 import { TimingToggle } from './TimingToggle';
 import { Upload } from './UploadButton';
 
@@ -25,10 +23,7 @@ export const LOAD_ERROR = 'Prices could not be loaded. Try again in a minute.';
 
 type Ok = ComputeResult & { ok: true };
 type Props = {
-  sample: SampleState;
   file: FileState;
-  tab: Tab;
-  onTab: (t: Tab) => void;
   broker: Broker;
   onBroker: (b: Broker) => void;
   onFiles: (files: InputFile[]) => void;
@@ -36,23 +31,23 @@ type Props = {
   onTiming: (t: FlowTiming) => void;
 };
 
-// Spec 15.1.5: tabs, then the result in sections. Sections render only when their data exists.
-export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFiles, onAddFiles, onTiming }: Props) {
+// Decision "Analyse page is for your own file": no sample here. Sections render only when their data exists.
+export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming }: Props) {
   const actions = (
     <div className="upload-block">
       <BrokerPicker value={broker} onChange={onBroker} />
       <div className="actions">
         <Upload onFiles={onFiles} />
-        {tab === 'file' && file.kind !== 'none' && <Upload onFiles={onAddFiles} label="Add another file" secondary />}
+        {file.kind !== 'none' && <Upload onFiles={onAddFiles} label="Add another file" secondary />}
       </div>
     </div>
   );
   const fileTitle =
     file.kind === 'none' ? '' : file.files.length > 1 ? `Your files (${file.files.length})` : `Your file (${file.files[0].name})`;
 
-  let shown: { title: string; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming; isSample: boolean } | null = null;
+  let shown: { title: string; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming } | null = null;
   let status: ReactNode = null;
-  if (tab === 'file' && file.kind === 'result') {
+  if (file.kind === 'result') {
     const { result, ledger, input, notices } = file.out;
     const extra = (
       <>
@@ -65,8 +60,8 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFiles, o
         <TimingToggle value={file.timing} onChange={onTiming} />
       </>
     );
-    shown = { title: fileTitle, result, ledger, input, extra, timing: file.timing, isSample: false };
-  } else if (tab === 'file' && file.kind !== 'none') {
+    shown = { title: fileTitle, result, ledger, input, extra, timing: file.timing };
+  } else if (file.kind !== 'none') {
     status = (
       <div className="file-status">
         <p className="hero-title">{fileTitle}</p>
@@ -78,22 +73,13 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFiles, o
         {actions}
       </div>
     );
-  } else if (sample.kind === 'loaded' && sample.sample.ok) {
-    const { input, ledger } = sample.sample;
-    shown = { title: SAMPLE_TITLE, result: sample.sample, ledger, input, extra: null, timing: 'start', isSample: true };
   } else {
-    if (sample.kind === 'loaded' && !sample.sample.ok) console.error('sample rejected', sample.sample.rejected);
-    status =
-      sample.kind === 'loading' ? (
-        <Skeleton />
-      ) : sample.kind === 'empty' ? (
-        <EmptyState />
-      ) : (
-        <div className="file-status">
-          <p role="alert">{LOAD_ERROR}</p>
-          {actions}
-        </div>
-      );
+    status = (
+      <div className="file-status">
+        <p className="lede">Pick your broker, then upload its activity statement. The file is read in this browser and never uploaded or stored.</p>
+        {actions}
+      </div>
+    );
   }
 
   const [benchTicker, setBenchTicker] = useState<string>('VOO');
@@ -108,7 +94,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFiles, o
             <Hero title={shown.title} titleAs="p" result={shown.result} ledger={shown.ledger}>
               {shown.extra}
               <ShareButtons result={shown.result}>
-                <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} isSample={shown.isSample} />
+                <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} />
               </ShareButtons>
             </Hero>
           </>
@@ -152,17 +138,14 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFiles, o
     <main className="page">
       <h1 className="visually-hidden">Analyse</h1>
       <div className="analyse-bar">
-        <ResultTabs tab={tab} fileEnabled={file.kind !== 'none'} onChange={onTab} />
         <SectionList sections={shown ? present : []} />
       </div>
-      <div id="analyse-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-        {present.map((s) => (
-          <section key={s.id} id={s.id} className="analyse-section">
-            <h2 className={s.id === 'returns' ? 'visually-hidden' : 'section-title'}>{s.title}</h2>
-            {bodies[s.id]}
-          </section>
-        ))}
-      </div>
+      {present.map((s) => (
+        <section key={s.id} id={s.id} className="analyse-section">
+          <h2 className={s.id === 'returns' ? 'visually-hidden' : 'section-title'}>{s.title}</h2>
+          {bodies[s.id]}
+        </section>
+      ))}
     </main>
   );
 }

@@ -8,7 +8,6 @@ import { loadSample, type SampleLoaded } from './data';
 import { Home } from './Home';
 import { Methodology } from './Methodology';
 import { Navbar } from './Navbar';
-import type { Tab } from './ResultTabs';
 import { Link, scrollToHash, usePath } from './router';
 import { runUpload, type UploadOutcome } from './upload';
 
@@ -38,7 +37,6 @@ export function App() {
   const path = usePath();
   const [sample, setSample] = useState<SampleState>({ kind: 'loading' });
   const [file, setFile] = useState<FileState>({ kind: 'none' });
-  const [tab, setTab] = useState<Tab>('sample');
   const [broker, setBroker] = useState<Broker>('ibkr');
 
   useEffect(() => {
@@ -57,7 +55,6 @@ export function App() {
   }, [path]);
 
   async function check(files: InputFile[], timing: FlowTiming = 'start') {
-    setTab('file');
     const wrong = mismatch(files, broker);
     if (wrong) return setFile({ kind: 'mismatch', files, message: wrong });
     setFile({ kind: 'running', files });
@@ -77,10 +74,7 @@ export function App() {
   else if (path === '/analyse')
     page = (
       <Analyse
-        sample={sample}
         file={file}
-        tab={tab}
-        onTab={setTab}
         broker={broker}
         onBroker={setBroker}
         onFiles={(files) => check(files)}

@@ -8,7 +8,7 @@ import { localToday, PrintStatement } from './PrintStatement';
 type Ok = ComputeResult & { ok: true };
 
 // Spec 15.3.4: snapshot the chart in light colours, then open the print dialog with the statement title.
-export function PrintButton({ result, ledger, timing, isSample }: { result: Ok; ledger: LedgerRow[]; timing: FlowTiming; isSample: boolean }) {
+export function PrintButton({ result, ledger, timing }: { result: Ok; ledger: LedgerRow[]; timing: FlowTiming }) {
   const [chartImage, setChartImage] = useState<string | null>(null);
   const today = localToday();
   async function print() {
@@ -28,7 +28,7 @@ export function PrintButton({ result, ledger, timing, isSample }: { result: Ok; 
         Print or save as PDF
       </button>
       {/* A child of body, so print CSS can hide #root and show only this. */}
-      {createPortal(<PrintStatement result={result} timing={timing} isSample={isSample} chartImage={chartImage} today={today} />, document.body)}
+      {createPortal(<PrintStatement result={result} timing={timing} chartImage={chartImage} today={today} />, document.body)}
     </>
   );
 }

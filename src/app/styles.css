@@ -132,8 +132,7 @@ a {
 .nav-item[aria-current='page'] {
   color: var(--paper);
 }
-.nav-item[aria-current='page'],
-.tab[aria-selected='true'] {
+.nav-item[aria-current='page'] {
   text-decoration: underline 2px;
   text-underline-offset: 6px;
   text-decoration-color: var(--brass);
@@ -149,30 +148,9 @@ a {
   }
 }
 
-/* Analyse: tabs and the section list (spec 15.1.5). */
+/* Analyse: the section list (spec 15.1.5). */
 .analyse-bar {
   display: contents;
-}
-.tabs {
-  display: flex;
-  gap: 24px;
-}
-.tab {
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-weight: 600;
-  color: var(--faded);
-  cursor: pointer;
-}
-.tab[aria-selected='true'] {
-  color: var(--paper);
-}
-.tab:disabled {
-  color: var(--rule);
-  cursor: not-allowed;
 }
 .section-list {
   position: sticky;

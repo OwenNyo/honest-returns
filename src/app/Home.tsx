@@ -11,12 +11,6 @@ import { Link } from './router';
 import { Skeleton } from './Skeleton';
 import { storyFacts } from './story';
 
-const checkOwn = (
-  <Link href="/analyse" className="button">
-    Check your own broker file
-  </Link>
-);
-
 // Spec 15.1.4: the sample told top to bottom. Every figure is generated from the data.
 export function Home({ sample }: { sample: SampleState }) {
   if (sample.kind === 'loaded' && !sample.sample.ok) console.error('sample rejected', sample.sample.rejected);
@@ -37,9 +31,7 @@ export function Home({ sample }: { sample: SampleState }) {
 
   return (
     <main className="page home">
-      <Hero title={SAMPLE_TITLE} result={s} ledger={s.ledger}>
-        <div className="actions">{checkOwn}</div>
-      </Hero>
+      <Hero title={SAMPLE_TITLE} result={s} ledger={s.ledger} />
 
       <Scene title="What they did" rows={
         <>
@@ -118,7 +110,11 @@ export function Home({ sample }: { sample: SampleState }) {
 
       <Scene title="Check your own file">
         <p>Your file is read in this browser and never uploaded or stored.</p>
-        <div className="actions">{checkOwn}</div>
+        <div className="actions">
+          <Link href="/analyse" className="button">
+            Check your own broker file
+          </Link>
+        </div>
       </Scene>
     </main>
   );

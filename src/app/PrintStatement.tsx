@@ -10,7 +10,7 @@ export const localToday = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // Spec 15.3: the one-page statement. Hidden on screen; the only thing printed. Never names the file or a ticker.
-export function PrintStatement({ result, timing, isSample, chartImage, today }: { result: Ok; timing: FlowTiming; isSample: boolean; chartImage: string | null; today: string }) {
+export function PrintStatement({ result, timing, chartImage, today }: { result: Ok; timing: FlowTiming; chartImage: string | null; today: string }) {
   const { twr, xirr, series } = result;
   const unit = (annualised: boolean) => (annualised ? 'a year' : 'in total');
   const first = series[0].date;
@@ -18,8 +18,7 @@ export function PrintStatement({ result, timing, isSample, chartImage, today }: 
   return (
     <section className="print-statement">
       <h1>Honest Returns statement</h1>
-      <p className="ps-sub">{isSample ? 'Sample portfolio' : 'Your file'}</p>
-      <p>
+      <p className="ps-sub">
         {formatDate(first)} to {formatDate(last)}
       </p>
       <div className="ps-rates">
@@ -52,11 +51,7 @@ export function PrintStatement({ result, timing, isSample, chartImage, today }: 
         <li>{FOOTNOTES.c}</li>
       </ol>
       <p>Generated on {formatDate(today)}</p>
-      <p>
-        {isSample
-          ? 'Nothing was stored. This statement was built in your browser.'
-          : 'Nothing was stored. Your file was read in this browser and was not uploaded.'}
-      </p>
+      <p>Nothing was stored. Your file was read in this browser and was not uploaded.</p>
     </section>
   );
 }

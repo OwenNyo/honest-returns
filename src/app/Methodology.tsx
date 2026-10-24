@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { DAYS_PER_YEAR, MONTHLY_NEW_TICKERS, REPO_URL, US_WITHHOLDING, XIRR_GUESS, XIRR_RANGE } from '../engine/constants';
+import { DAYS_PER_YEAR, REPO_URL, US_WITHHOLDING, XIRR_GUESS, XIRR_RANGE } from '../engine/constants';
 import { FOOTNOTES } from './footnotes';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -11,10 +11,7 @@ export function Methodology() {
   return (
     <article className="prose">
       <h1 className="hero-title">Methodology</h1>
-      <p className="lede">
-        How Honest Returns turns a broker file into two numbers, and every convention it uses. Your file is read in this
-        browser and is never uploaded or stored: only the list of tickers and the first date are sent, to fetch prices.
-      </p>
+      <p className="lede">How Honest Returns turns a broker file into two numbers, and every convention it uses.</p>
 
       <Section id="two-numbers" title="The two numbers">
         <p>
@@ -140,13 +137,6 @@ export function Methodology() {
           Accounts, SGX tickers, Irish-domiciled ETFs, currencies other than SGD and USD, margin and short positions,
           interest on cash, cash in lieu on reverse splits and options. A file that needs any of these is rejected or, for
           options in an Interactive Brokers statement, skipped with a notice.
-        </p>
-      </Section>
-
-      <Section id="ticker-requests" title="Ticker requests">
-        <p>
-          A ticker that is not supported yet can be requested from the upload result. Up to {MONTHLY_NEW_TICKERS} new
-          tickers are added each month, overnight.
         </p>
       </Section>
 
