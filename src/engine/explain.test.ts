@@ -64,7 +64,7 @@ describe('explainGap, spec 10.7 rules', () => {
       yearReturns: [yr(2019, '0.312'), yr(2022, '-0.181')],
       deposits: [dep('2019-01-02', 15), dep('2022-06-01', 85)],
     });
-    expect(s).toBe('TWR and XIRR are within 0.5 percentage points, so the timing of your deposits made little difference.');
+    expect(s).toBe('TWR and XIRR are within 0.5 points, so the timing of your deposits made little difference.');
   });
 
   test('rule 5: lower, most deposits before the worst year', () => {

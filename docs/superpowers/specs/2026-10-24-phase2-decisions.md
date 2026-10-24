@@ -62,7 +62,7 @@ Site rule: calls to action are buttons, never underlined links in prose. Brass `
 
 ## Analyse empty state (Owen, 2026-10-24)
 
-Before a file is chosen, Analyse is a two-column hero: title, lede, three lines of what the reader gets, broker tiles (a real radio group), a drag-and-drop zone around the upload control, and the privacy line on the left; a muted ghost of the result (rate slots, empty number line, empty chart frame) on the right. No sample data on this page. Overrides spec 15.1.5 picker and upload layout.
+Before a file is chosen, Analyse is a two-column hero: title, lede, three lines of what the reader gets, broker tiles (a real radio group), a drag-and-drop zone around the upload control, and the privacy line on the left; a muted ghost of the result (rate slots, empty number line, empty chart frame) on the right. No sample data on this page. Below 960 px, where the ghost is hidden, the order is title, lede, what-you-get list, tiles, drop zone, privacy line. Overrides spec 15.1.5 picker and upload layout.
 
 ## Design review fixes for Home and Analyse (2026-10-24)
 

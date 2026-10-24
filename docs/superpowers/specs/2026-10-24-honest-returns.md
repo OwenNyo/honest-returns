@@ -501,7 +501,7 @@ UI: stacked rows (label left, amount right), not a table.
 1. XIRR undefined, reason `no_sign_change`: `XIRR cannot be calculated because the cash flows never change sign.`
 2. XIRR undefined, reason `no_root_in_range`: `XIRR cannot be calculated because no rate between -99% and 1000% balances the cash flows.`
 3. XIRR undefined, reason `period_too_short`: `XIRR needs at least two different dates.`
-4. `|gap| < 0.5`: `TWR and XIRR are within 0.5 percentage points, so the timing of your deposits made little difference.`
+4. `|gap| < 0.5`: `TWR and XIRR are within 0.5 points, so the timing of your deposits made little difference.`
 5. `gap < 0`, worst year W with `twr < 0`, share of deposits dated before 1 January of W >= 50%: `XIRR is lower than TWR because {share}% of your deposits arrived before the {W} fall of {abs(twr)}%.`
 6. `gap < 0`, best year B with `twr > 0`, share dated after 31 December of B >= 50%: `XIRR is lower than TWR because {share}% of your deposits arrived after {B}, the strongest year (+{twr}%).`
 7. `gap < 0`: `XIRR is lower than TWR because more of your money was invested in the weaker periods than in the stronger ones.`

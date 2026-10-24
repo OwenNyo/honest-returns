@@ -26,7 +26,7 @@ export function explainGap(input: {
   xirr: XirrResult;
   yearReturns: YearReturn[];
   deposits: { date: IsoDate; amount: Decimal }[];
-}): string {
+}, possessive: 'your' | 'their' = 'your'): string {
   const { twr, xirr, deposits } = input;
   if (xirr.kind === 'undefined') {
     if (xirr.reason === 'no_sign_change') return 'XIRR cannot be calculated because the cash flows never change sign.';
@@ -36,7 +36,7 @@ export function explainGap(input: {
   }
   const gap = xirr.value.minus(twr.value).times(100);
   if (gap.abs().lt(SMALL_GAP))
-    return 'TWR and XIRR are within 0.5 percentage points, so the timing of your deposits made little difference.';
+    return `TWR and XIRR are within 0.5 points, so the timing of ${possessive} deposits made little difference.`;
 
   // Ties go to the earliest year: only a strictly better year replaces the current pick.
   const years = input.yearReturns.filter((y) => y.days >= MIN_DAYS);
@@ -55,14 +55,14 @@ export function explainGap(input: {
 
   if (gap.lt(0)) {
     if (worstFell && before(worstFell.year).gte(0.5))
-      return `XIRR is lower than TWR because ${whole(before(worstFell.year))}% of your deposits arrived before the ${worstFell.year} fall of ${pct1(worstFell.twr)}%.`;
+      return `XIRR is lower than TWR because ${whole(before(worstFell.year))}% of ${possessive} deposits arrived before the ${worstFell.year} fall of ${pct1(worstFell.twr)}%.`;
     if (bestRose && after(bestRose.year).gte(0.5))
-      return `XIRR is lower than TWR because ${whole(after(bestRose.year))}% of your deposits arrived after ${bestRose.year}, the strongest year (+${pct1(bestRose.twr)}%).`;
-    return 'XIRR is lower than TWR because more of your money was invested in the weaker periods than in the stronger ones.';
+      return `XIRR is lower than TWR because ${whole(after(bestRose.year))}% of ${possessive} deposits arrived after ${bestRose.year}, the strongest year (+${pct1(bestRose.twr)}%).`;
+    return `XIRR is lower than TWR because more of ${possessive} money was invested in the weaker periods than in the stronger ones.`;
   }
   if (bestRose && before(bestRose.year).gte(0.5))
-    return `XIRR is higher than TWR because ${whole(before(bestRose.year))}% of your deposits arrived before the ${bestRose.year} gain of ${pct1(bestRose.twr)}%.`;
+    return `XIRR is higher than TWR because ${whole(before(bestRose.year))}% of ${possessive} deposits arrived before the ${bestRose.year} gain of ${pct1(bestRose.twr)}%.`;
   if (worstFell && after(worstFell.year).gte(0.5))
-    return `XIRR is higher than TWR because ${whole(after(worstFell.year))}% of your deposits arrived after the ${worstFell.year} fall of ${pct1(worstFell.twr)}%.`;
-  return 'XIRR is higher than TWR because more of your money was invested in the stronger periods than in the weaker ones.';
+    return `XIRR is higher than TWR because ${whole(after(worstFell.year))}% of ${possessive} deposits arrived after the ${worstFell.year} fall of ${pct1(worstFell.twr)}%.`;
+  return `XIRR is higher than TWR because more of ${possessive} money was invested in the stronger periods than in the weaker ones.`;
 }

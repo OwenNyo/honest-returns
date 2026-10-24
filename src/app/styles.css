@@ -168,6 +168,9 @@ a {
   white-space: nowrap;
 }
 .section-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   color: var(--faded);
   text-decoration: none;
 }
@@ -266,6 +269,7 @@ a {
 }
 .hero-main,
 .hero-aside,
+.hero-tools,
 .hero-side {
   display: grid;
   gap: var(--space);
@@ -275,7 +279,7 @@ a {
 @media (min-width: 960px) {
   .hero-main {
     grid-template-columns: 2fr 1fr;
-    grid-template-areas: 'title title' 'rates aside' 'line line';
+    grid-template-areas: 'title title' 'rates aside' 'line line' 'tools tools';
     column-gap: 4rem;
     row-gap: calc(var(--space) * 1.25);
   }
@@ -288,6 +292,9 @@ a {
   .hero-main > .hero-aside {
     grid-area: aside;
     padding-top: 1.75rem; /* level with the top of the numbers, under the TWR and XIRR labels */
+  }
+  .hero-main > .hero-tools {
+    grid-area: tools;
   }
   .hero-main > .numberline {
     grid-area: line;
@@ -309,6 +316,16 @@ a {
   line-height: 1.05;
   letter-spacing: -0.02em;
   max-width: 30ch;
+  overflow-wrap: anywhere;
+}
+.hero-files {
+  display: block;
+  margin-top: 0.75rem;
+  font-size: var(--step-0);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--faded);
 }
 
 .rates {
@@ -581,7 +598,7 @@ a {
 .rejections {
   overflow-wrap: anywhere; /* the bad_header message holds one long unbroken line */
   background: var(--binding);
-  border-left: 4px solid var(--brass);
+  border-left: 4px solid var(--rule);
   padding: 1rem 1.25rem;
 }
 .rejections ul {
@@ -623,7 +640,7 @@ a {
   accent-color: var(--brass);
 }
 
-/* Broker picker (decision "Analyse page broker picker"): one row above the result on desktop. */
+/* Broker picker (decision "Analyse page broker picker"): tiles, two per row; one row of four above a result on desktop. */
 .upload-block {
   display: flex;
   flex-wrap: wrap;
@@ -635,37 +652,201 @@ a {
   margin: 0;
   padding: 0;
   border: 0;
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
 }
 .picker legend {
   padding: 0;
+  margin-bottom: 0.5rem;
   font-weight: 600;
 }
-@media (max-width: 959px) {
-  .picker {
-    display: grid;
-  }
+.tile {
+  position: relative;
+  display: grid;
+  align-content: space-between;
+  gap: 0.25rem;
+  min-height: 92px;
+  padding: 12px 14px;
+  background: var(--binding);
+  border: 2px solid var(--rule);
+  border-radius: 2px;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
 }
-.picker .disabled {
+.tile:hover {
+  border-color: var(--faded);
+  transform: translateY(-1px);
+}
+.tile:has(input:checked) {
+  border-color: var(--brass);
+}
+.tile:has(input:focus-visible) {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+}
+.tile.disabled {
+  background: none;
   color: var(--faded);
   cursor: not-allowed;
 }
-.soon {
+.tile.disabled:hover {
+  border-color: var(--rule);
+  transform: none;
+}
+.tile-note {
   font-size: var(--step--1);
+  font-weight: 400;
+  color: var(--faded);
 }
-.picker-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: 16px;
-}
-.picker-row a {
+a.tile-note {
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+  margin-bottom: -12px;
+}
+a.tile-note:hover {
+  color: var(--paper);
+}
+.section-body > .upload-block {
+  padding-top: 0;
+}
+@media (min-width: 960px) {
+  .upload-block .picker {
+    flex: 1 1 100%;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .upload-block .tile {
+    min-height: 0;
+  }
+}
+
+/* Analyse before a file is chosen (decisions doc, "Analyse empty state"): the offer left, a ghost of the result right. */
+.intro {
+  display: grid;
+  gap: calc(var(--space) * 2);
+  padding-top: var(--space);
+}
+.intro-main,
+.intro-side,
+.ghost {
+  display: grid;
+  gap: var(--space);
+  align-content: start;
+  min-width: 0;
+}
+.gets {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0 0 0 1rem;
+  list-style: none;
+  border-left: 2px solid var(--rule);
+}
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: calc(var(--space) * 1.25) 1rem;
+  border: 2px dashed var(--faded);
+  border-radius: 2px;
   color: var(--faded);
+  font-weight: 600;
+  text-align: center;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+.dropzone p {
+  text-wrap: balance;
+}
+@media (pointer: coarse) {
+  .dropzone p {
+    display: none; /* no dragging on a touch screen */
+  }
+}
+.dropzone:hover,
+.dropzone:focus-within {
+  border-color: var(--paper);
+  color: var(--paper);
+}
+.dropzone.over {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+.privacy {
+  margin-top: calc(var(--space) * -0.5);
+  max-width: 34em;
+  font-size: var(--step-0);
+  color: var(--faded);
+}
+.ghost-caption {
+  font-weight: 600;
+  color: var(--faded);
+}
+.ghost-drawing {
+  --ghost-line: color-mix(in srgb, var(--faded) 35%, var(--binding));
+  display: grid;
+  gap: var(--space);
+  color: var(--faded);
+}
+.ghost-dash {
+  display: inline-block;
+  width: 1em;
+  height: 0.08em;
+  vertical-align: middle;
+  background: currentColor;
+}
+.ghost-drawing .nl-axis::before,
+.ghost-drawing .nl-tick {
+  background: var(--ghost-line);
+}
+@media (max-width: 959px) {
+  .ghost {
+    display: none;
+  }
+  /* Without the ghost, the list reads before the picker: title, lede, list, tiles, drop zone, privacy. */
+  .intro {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space);
+  }
+  .intro-main,
+  .intro-side {
+    display: contents;
+  }
+  .intro .hero-title,
+  .intro .lede {
+    order: -2;
+  }
+  .gets {
+    order: -1;
+  }
+}
+.ghost-chart {
+  height: 260px;
+  background-color: var(--binding);
+  background-image: repeating-linear-gradient(to bottom, transparent 0 51px, var(--ghost-line) 51px 52px);
+  border-left: 2px solid var(--ghost-line);
+  border-bottom: 2px solid var(--ghost-line);
+}
+@media (min-width: 960px) {
+  .intro {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    column-gap: 4rem;
+  }
+  .intro-side {
+    padding-top: 0.5rem;
+  }
+  .ghost-chart {
+    height: 364px; /* a multiple of the 52 px grid */
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile:hover {
+    transform: none;
+  }
 }
 
 /* Home story (spec 15.1.4): scenes separated by space, prose left and rows right on desktop. */
@@ -722,14 +903,14 @@ a {
 }
 .year {
   display: grid;
-  grid-template-columns: 6.5rem 1fr 4.5rem 8rem;
+  grid-template-columns: 7.75rem 1fr 4.5rem 8rem;
   align-items: center;
   gap: 0.75rem;
 }
 .year-note {
   display: block;
   font-size: var(--step--1);
-  color: var(--brass);
+  color: var(--faded);
 }
 /* Bars grow from a centre zero line: gains to the right in Pencil blue, losses to the left in Faded. */
 .year-bar {
@@ -761,7 +942,7 @@ a {
 }
 @media (max-width: 959px) {
   .year {
-    grid-template-columns: 5.5rem 1fr 4rem;
+    grid-template-columns: 7.75rem 1fr 4rem;
   }
   .year > .num:last-child {
     grid-column: 1 / -1;
@@ -771,8 +952,9 @@ a {
   }
 }
 @media (min-width: 960px) {
+  /* Prose takes the room (max 56ch, about 62 characters); the right column hugs its content at the right edge (decisions doc, 2026-10-24). */
   .scene {
-    grid-template-columns: 5fr 7fr;
+    grid-template-columns: minmax(0, 1fr) auto;
     column-gap: 4rem;
     align-items: start;
   }
@@ -780,8 +962,18 @@ a {
     grid-column: 1 / -1;
     font-size: var(--step-4);
   }
+  .scene-prose {
+    max-width: 56ch;
+  }
   .scene:not(:has(.rows)) .scene-prose {
     grid-column: 1 / -1;
+  }
+  /* Tables and figures keep a fixed width so labels and figures stay apart; a lone button takes only its own width. */
+  .scene > .rows {
+    width: 28rem;
+  }
+  .scene > .rows:has(> .actions:only-child) {
+    width: auto;
   }
 }
 
@@ -832,7 +1024,7 @@ a {
 }
 
 .notice {
-  border-left: 4px solid var(--brass);
+  border-left: 4px solid var(--rule);
   padding-left: 1rem;
   max-width: 34em;
 }
@@ -847,6 +1039,11 @@ a {
   font-size: var(--step-3);
   font-weight: 800;
   line-height: 1.1;
+}
+@media (min-width: 960px) {
+  .section-title {
+    font-size: var(--step-4);
+  }
 }
 .section-body {
   display: grid;
@@ -890,8 +1087,7 @@ a {
 .button.secondary {
   background: none;
   color: var(--paper);
-  box-shadow: inset 0 0 0 2px var(--rule);
-  border: 0;
+  box-shadow: inset 0 0 0 2px var(--faded);
   font-size: var(--step-0);
 }
 .button.secondary:hover,

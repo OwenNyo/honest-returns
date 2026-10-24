@@ -8,7 +8,7 @@ export interface StoryFacts {
   moneyIn: Decimal;
   conversions: number;
   buysByTicker: Record<string, number>;
-  years: { year: number; twr: Decimal; deposited: Decimal }[];
+  years: { year: number; twr: Decimal; deposited: Decimal; end?: IsoDate }[]; // end: last series date in the year
   best: number | null; // null when no year has 90 days
   worst: number | null;
   fxFrom: { rate: Decimal; date: IsoDate };
@@ -30,6 +30,7 @@ export function storyFacts(loaded: Loaded): StoryFacts {
     .map((y) => ({
       year: y.year,
       twr: y.twr,
+      end: series.findLast((p) => p.date.startsWith(`${y.year}-`))?.date,
       deposited: ledger
         .filter((r) => r.type === 'DEPOSIT' && Number(r.date.slice(0, 4)) === y.year)
         .reduce((s, r) => s.plus(r.amount), D(0)),

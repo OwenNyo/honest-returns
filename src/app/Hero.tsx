@@ -55,10 +55,8 @@ export function Hero({
           </p>
         </div>
         {xirr.kind === 'ok' && <NumberLine twr={twr.value} xirr={xirr.value} />}
-        <div className="hero-aside">
-          {result.explanation && <p className="explanation">{result.explanation}</p>}
-          {children}
-        </div>
+        <div className="hero-aside">{result.explanation && <p className="explanation">{result.explanation}</p>}</div>
+        {children && <div className="hero-tools">{children}</div>}
       </div>
       <div className="hero-side">
         <ValueChart series={series} ledger={ledger} />

@@ -8,6 +8,7 @@ import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { FileList } from './FileList';
+import { formatDate, formatSgd } from './format';
 import { Hero } from './Hero';
 import { PrintButton } from './PrintButton';
 import { RawPricesPanel } from './RawPricesPanel';
@@ -16,7 +17,7 @@ import { SectionList } from './SectionList';
 import { ShareButtons } from './ShareButtons';
 import { SECTIONS } from './sections';
 import { TimingToggle } from './TimingToggle';
-import { Upload } from './UploadButton';
+import { DropZone, Upload } from './UploadButton';
 
 export const SAMPLE_TITLE = 'A Singapore investor put SGD 1,000 a month into VOO and AAPL, January 2019 to June 2025.';
 export const LOAD_ERROR = 'Prices could not be loaded. Try again in a minute.';
@@ -37,7 +38,12 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
     <div className="upload-block">
       <BrokerPicker value={broker} onChange={onBroker} />
       <div className="actions">
-        <Upload onFiles={onFiles} />
+        {/* One brass button per page: under a ticker request it steps down to secondary. */}
+        <Upload
+          onFiles={onFiles}
+          label="Choose another file"
+          secondary={file.kind === 'rejected' && file.rejected.some((r) => r.code === 'unsupported_tickers')}
+        />
         {file.kind !== 'none' && <Upload onFiles={onAddFiles} label="Add another file" secondary />}
       </div>
     </div>
@@ -45,7 +51,7 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
   const fileTitle =
     file.kind === 'none' ? '' : file.files.length > 1 ? `Your files (${file.files.length})` : `Your file (${file.files[0].name})`;
 
-  let shown: { title: string; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming } | null = null;
+  let shown: { title: ReactNode; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming } | null = null;
   let status: ReactNode = null;
   if (file.kind === 'result') {
     const { result, ledger, input, notices } = file.out;
@@ -60,7 +66,18 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
         <TimingToggle value={file.timing} onChange={onTiming} />
       </>
     );
-    shown = { title: fileTitle, result, ledger, input, extra, timing: file.timing };
+    // Same money-in figure as storyFacts: the last point's net invested SGD.
+    const last = result.series[result.series.length - 1];
+    const names = file.files.map((f) => f.name);
+    const title = (
+      <>
+        {formatSgd(last.netInvestedSgd)} in, {formatDate(result.series[0].date)} to {formatDate(last.date)}
+        <span className="hero-files">
+          {names.length > 1 ? `Your files (${names.length}): ${names.join(', ')}` : `Your file: ${names[0]}`}
+        </span>
+      </>
+    );
+    shown = { title, result, ledger, input, extra, timing: file.timing };
   } else if (file.kind !== 'none') {
     status = (
       <div className="file-status">
@@ -75,9 +92,28 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
     );
   } else {
     status = (
-      <div className="file-status">
-        <p className="lede">Pick your broker, then upload its activity statement. The file is read in this browser and never uploaded or stored.</p>
-        {actions}
+      <div className="intro">
+        <div className="intro-main">
+          <h1 className="hero-title">Check your own broker file</h1>
+          <p className="lede">Choose the format of your file, then add it below.</p>
+          <BrokerPicker value={broker} onChange={onBroker} />
+          <DropZone onFiles={onFiles} />
+          <p className="privacy">
+            Your file is read in this browser and never uploaded or stored. Only the tickers and the first date are sent, to
+            fetch prices.
+          </p>
+        </div>
+        <div className="intro-side">
+          <ul className="gets">
+            <li>TWR and XIRR side by side, in SGD</li>
+            <li>The gain split into price, exchange rate, conversion cost and dividends</li>
+            <li>The same deposits put into one fund, for comparison</li>
+          </ul>
+          <div className="ghost">
+            <p className="ghost-caption">Your result appears here</p>
+            <ResultPreview />
+          </div>
+        </div>
       </div>
     );
   }
@@ -89,15 +125,12 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
   const bodies: Record<string, ReactNode> = shown
     ? {
         returns: (
-          <>
-            {actions}
-            <Hero title={shown.title} titleAs="p" result={shown.result} ledger={shown.ledger}>
-              {shown.extra}
-              <ShareButtons result={shown.result}>
-                <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} />
-              </ShareButtons>
-            </Hero>
-          </>
+          <Hero title={shown.title} titleAs="p" result={shown.result} ledger={shown.ledger}>
+            {shown.extra}
+            <ShareButtons result={shown.result}>
+              <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} />
+            </ShareButtons>
+          </Hero>
         ),
         decomposition: shown.result.decomposition && (
           <div className="section-body">
@@ -136,16 +169,64 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
 
   return (
     <main className="page">
-      <h1 className="visually-hidden">Analyse</h1>
+      {file.kind !== 'none' && <h1 className="visually-hidden">Analyse</h1>}
       <div className="analyse-bar">
         <SectionList sections={shown ? present : []} />
       </div>
       {present.map((s) => (
         <section key={s.id} id={s.id} className="analyse-section">
-          <h2 className={s.id === 'returns' ? 'visually-hidden' : 'section-title'}>{s.title}</h2>
+          {file.kind !== 'none' && <h2 className={s.id === 'returns' ? 'visually-hidden' : 'section-title'}>{s.title}</h2>}
           {bodies[s.id]}
         </section>
       ))}
+      {shown && (
+        <section id="another-file" className="analyse-section">
+          <h2 className="section-title">Check another file</h2>
+          <div className="section-body">
+            <p className="section-intro">Choose the format, then start a new report from another file or add a file to this one.</p>
+            {actions}
+          </div>
+        </section>
+      )}
     </main>
+  );
+}
+
+// A muted outline of the result: rate slots, an empty number line from 0 to 25%, an empty chart frame. No data.
+const PREVIEW_TICKS = [0, 5, 10, 15, 20, 25];
+function ResultPreview() {
+  const slot = (label: string) => (
+    <p>
+      <span className="rate-label">{label}</span>
+      <span className="rate-value">
+        <span className="ghost-dash" />
+      </span>
+      <span className="rate-unit">
+        <span className="ghost-dash" />
+      </span>
+    </p>
+  );
+  return (
+    <div className="ghost-drawing" aria-hidden="true">
+      <div className="rates">
+        {slot('TWR')}
+        {slot('XIRR')}
+      </div>
+      <div className="numberline">
+        <div className="nl-axis">
+          {PREVIEW_TICKS.map((v) => (
+            <span key={v} className="nl-tick" style={{ left: `${v * 4}%` }} />
+          ))}
+        </div>
+        <div className="nl-row nl-ticks">
+          {PREVIEW_TICKS.map((v, i) => (
+            <span key={v} className={`nl-label ${i === 0 ? 'start' : i === PREVIEW_TICKS.length - 1 ? 'end' : 'center'}`} style={{ left: `${v * 4}%` }}>
+              {v}%
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="ghost-chart" />
+    </div>
   );
 }

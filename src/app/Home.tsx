@@ -1,3 +1,4 @@
+import { explainGap } from '../engine/explain';
 import { LOAD_ERROR, SAMPLE_TITLE } from './Analyse';
 import type { SampleState } from './App';
 import { Decomposition } from './Decomposition';
@@ -28,10 +29,14 @@ export function Home({ sample }: { sample: SampleState }) {
   const unit = (annualised: boolean) => (annualised ? 'a year' : 'in total');
   const pct = (d: Parameters<typeof formatPct>[0]) => formatPct(d, 1);
   const maxAbs = Math.max(...f.years.map((y) => Math.abs(y.twr.toNumber())), 0.0001);
+  // ponytail: deposits are the DEPOSIT rows only, as in compute; the sample ledger has no OPENING rows.
+  const deposits = s.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
+  const explanation = explainGap({ twr: s.twr, xirr: s.xirr, yearReturns: s.yearReturns ?? [], deposits }, 'their');
+  const fx = s.decomposition?.fx;
 
   return (
     <main className="page home">
-      <Hero title={SAMPLE_TITLE} result={s} ledger={s.ledger} />
+      <Hero title={SAMPLE_TITLE} result={{ ...s, explanation }} ledger={s.ledger} />
 
       <Scene title="What they did" rows={
         <>
@@ -69,6 +74,7 @@ export function Home({ sample }: { sample: SampleState }) {
               <div className="year" role="row" key={y.year}>
                 <span role="rowheader">
                   {y.year}
+                  {y.end && y.end < `${y.year}-12-31` && ` (to ${formatDate(y.end).slice(0, -5)})`}
                   {note && <span className="year-note">{note}</span>}
                 </span>
                 <span role="cell" className="year-bar" aria-hidden="true">
@@ -82,13 +88,13 @@ export function Home({ sample }: { sample: SampleState }) {
         </div>
       }>
         <p>Money arrived at the same pace every month, but returns came unevenly from year to year.</p>
-        {s.explanation && <p>{s.explanation}</p>}
       </Scene>
 
-      <Scene title="What the exchange rate did" rows={s.decomposition && <Decomposition d={s.decomposition} />}>
+      <Scene title="Where the gain came from" rows={s.decomposition && <Decomposition d={s.decomposition} />}>
         <p>
           The shares are priced in USD but the result is in SGD, so the USD/SGD rate moves the result. USD/SGD went from{' '}
           {f.fxFrom.rate.toFixed(4)} on {formatDate(f.fxFrom.date)} to {f.fxTo.rate.toFixed(4)} on {formatDate(f.fxTo.date)}.
+          {fx && ` The exchange rate alone ${fx.gte(0) ? `added ${formatSgd(fx)} to` : `took ${formatSgd(fx.abs())} off`} the result.`}
         </p>
       </Scene>
 
@@ -108,10 +114,9 @@ export function Home({ sample }: { sample: SampleState }) {
           </Link>
         </div>
       }>
-        <RawPricesPanel input={s.input} twr={s.twr} />
+        <RawPricesPanel input={s.input} twr={s.twr} possessive="their" />
         <p>
-          Most charting sites use adjusted close, which folds later dividends and splits back into old prices. Honest Returns
-          values each day at the price that actually traded, converts it at that day's exchange rate, and books dividends as
+          Honest Returns values each day at the price that actually traded, converts it at that day's exchange rate, and books dividends as
           cash rather than hiding them in the price. The methodology page lists every rule, with a figure for each.
         </p>
       </Scene>
@@ -124,7 +129,7 @@ export function Home({ sample }: { sample: SampleState }) {
         </div>
       }>
         <p>
-          Export an activity statement from your broker and drop it here. The whole calculation runs in this browser: your
+          Export an activity statement from your broker and check it on the Analyse page. The whole calculation runs in this browser: your
           file is never uploaded and nothing about it is stored. Only the list of tickers and the first date leave your
           device, to fetch prices. You get the same two numbers, the same breakdown, and a card or PDF to keep.
         </p>
