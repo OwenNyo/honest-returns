@@ -1,12 +1,12 @@
 import type { Context } from 'hono';
-import { MONTHLY_NEW_TICKERS } from '../src/engine/constants';
+import { MONTHLY_NEW_TICKERS, TOTAL_TICKERS } from '../src/engine/constants';
 import { TickerRequestBody } from '../src/shared/api';
 import type { Env } from './index';
 
 export const DAILY_CLIENT_REQUESTS = 10; // per hashed client IP per UTC day; every POST counts
 const DEV_SALT = 'honest-returns-dev-salt'; // used only when the REQUEST_SALT secret is not set (local dev)
 
-type Status = 'queued' | 'already_queued' | 'already_available' | 'limit_reached';
+type Status = 'queued' | 'already_queued' | 'already_available' | 'limit_reached' | 'list_full';
 
 async function clientHash(ip: string, salt: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ip));
@@ -45,6 +45,10 @@ export async function postTickerRequests(c: Context<{ Bindings: Env }>) {
     .bind(monthStart)
     .first<{ n: number }>();
   let count = used!.n;
+  const list = await db
+    .prepare("SELECT (SELECT COUNT(*) FROM tickers) + (SELECT COUNT(*) FROM ticker_requests WHERE status = 'queued') AS n")
+    .first<{ n: number }>();
+  let listCount = list!.n;
 
   const results: { ticker: string; status: Status }[] = [];
   for (const ticker of parsed.data.tickers) {
@@ -54,6 +58,7 @@ export async function postTickerRequests(c: Context<{ Bindings: Env }>) {
     if (listed || request?.status === 'added') status = 'already_available';
     else if (request?.status === 'queued') status = 'already_queued';
     else if (count >= MONTHLY_NEW_TICKERS) status = 'limit_reached';
+    else if (listCount >= TOTAL_TICKERS) status = 'list_full';
     else {
       // A ticker Tiingo did not know before may be listed now, so a not_found request is queued again.
       await db
@@ -64,6 +69,7 @@ export async function postTickerRequests(c: Context<{ Bindings: Env }>) {
         .bind(ticker, today)
         .run();
       count++;
+      listCount++;
       status = 'queued';
     }
     results.push({ ticker, status });

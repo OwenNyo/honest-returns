@@ -1,6 +1,7 @@
 import { env, exports } from 'cloudflare:workers';
 import { beforeEach, expect, test } from 'vitest';
 import { DAILY_CLIENT_REQUESTS } from './requests';
+import { MONTHLY_NEW_TICKERS, TOTAL_TICKERS } from '../src/engine/constants';
 
 // Spec 10.8 and checkpoint 1 decision 12: POST /api/ticker-requests, monthly cap of 90 new tickers,
 // per-client daily cap counted by a hashed IP in D1. No network calls: the endpoint only touches D1.
@@ -141,4 +142,58 @@ test('the client IP is not stored in D1 in plain text', async () => {
     const rows = await env.DB.prepare(`SELECT * FROM "${name}"`).all();
     expect(JSON.stringify(rows.results)).not.toContain(ip);
   }
+});
+
+// Tiingo's free plan allows 500 distinct symbols a month and every ticker on the list is fetched nightly,
+// so the list (tickers plus queued requests) stops growing at TOTAL_TICKERS.
+beforeEach(async () => {
+  await env.DB.prepare("DELETE FROM tickers WHERE ticker LIKE 'ZZ%'").run();
+});
+
+// Pads the tickers table with synthetic ZZ rows until it holds exactly n rows.
+async function fillTickers(n: number) {
+  const have = (await env.DB.prepare('SELECT COUNT(*) AS n FROM tickers').first<{ n: number }>())!.n;
+  const stmts = Array.from({ length: n - have }, (_, i) =>
+    env.DB.prepare("INSERT INTO tickers (ticker, priority, added_on) VALUES (?, 0, '2026-01-01')").bind(`ZZ${String(i).padStart(3, '0')}`),
+  );
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+test('with the list one short of TOTAL_TICKERS, the first new ticker is queued and the second is list_full', async () => {
+  await seedRequests(1, lastMonth());
+  await fillTickers(TOTAL_TICKERS - 2);
+  expect(await json({ tickers: ['NEWA', 'NEWB'] })).toEqual({
+    results: [
+      { ticker: 'NEWA', status: 'queued' },
+      { ticker: 'NEWB', status: 'list_full' },
+    ],
+    availableFrom: null,
+  });
+});
+
+test('with the list at TOTAL_TICKERS, a new ticker is list_full and not stored', async () => {
+  await fillTickers(TOTAL_TICKERS);
+  expect((await json({ tickers: ['NEWA'] })).results).toEqual([{ ticker: 'NEWA', status: 'list_full' }]);
+  const row = await env.DB.prepare('SELECT 1 FROM ticker_requests WHERE ticker = ?').bind('NEWA').first();
+  expect(row).toBeNull();
+});
+
+test('with the list at TOTAL_TICKERS, available and queued tickers keep their status', async () => {
+  await seedRequests(1, today());
+  await fillTickers(TOTAL_TICKERS - 1);
+  expect((await json({ tickers: ['TSTR', 'Q000'] })).results).toEqual([
+    { ticker: 'TSTR', status: 'already_available' },
+    { ticker: 'Q000', status: 'already_queued' },
+  ]);
+});
+
+test('when both the monthly cap and the list cap apply, the status is limit_reached', async () => {
+  await seedRequests(MONTHLY_NEW_TICKERS, today());
+  await fillTickers(TOTAL_TICKERS);
+  expect((await json({ tickers: ['NEWA'] })).results).toEqual([{ ticker: 'NEWA', status: 'limit_reached' }]);
+});
+
+test('the UI shows the list_full message', async () => {
+  const src = await import('../src/app/RequestTickers.tsx?raw');
+  expect(src.default).toContain('The ticker list is full for now. More cannot be added until some are retired.');
 });

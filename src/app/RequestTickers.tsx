@@ -21,11 +21,13 @@ export function RequestTickers({ tickers }: { tickers: string[] }) {
       });
       if (res.status === 429) return setState('This connection has sent too many requests today. Try again tomorrow.');
       if (!res.ok) throw new Error(`/api/ticker-requests answered HTTP ${res.status}`);
-      const body = (await res.json()) as { availableFrom: string | null };
+      const body = (await res.json()) as { results: { status: string }[]; availableFrom: string | null };
       setState(
         body.availableFrom
           ? `Monthly ticker limit reached. Requests open again on ${longDate(body.availableFrom)}.`
-          : 'Requested. New tickers usually load overnight.',
+          : body.results.some((r) => r.status === 'list_full')
+            ? 'The ticker list is full for now. More cannot be added until some are retired.'
+            : 'Requested. New tickers usually load overnight.',
       );
     } catch (e) {
       console.error(e);
