@@ -7,6 +7,7 @@ import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { Hero } from './Hero';
+import { PrintButton } from './PrintButton';
 import { RawPricesPanel } from './RawPricesPanel';
 import { Rejections } from './Rejections';
 import { ResultTabs, type Tab } from './ResultTabs';
@@ -44,7 +45,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
   );
   const fileTitle = file.kind === 'none' ? '' : `Your file (${file.name})`;
 
-  let shown: { title: string; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode } | null = null;
+  let shown: { title: string; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming; isSample: boolean } | null = null;
   let status: ReactNode = null;
   if (tab === 'file' && file.kind === 'result') {
     const { result, ledger, input, notices } = file.out;
@@ -58,7 +59,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
         <TimingToggle value={file.timing} onChange={onTiming} />
       </>
     );
-    shown = { title: fileTitle, result, ledger, input, extra };
+    shown = { title: fileTitle, result, ledger, input, extra, timing: file.timing, isSample: false };
   } else if (tab === 'file' && file.kind !== 'none') {
     status = (
       <div className="file-status">
@@ -73,7 +74,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
     );
   } else if (sample.kind === 'loaded' && sample.sample.ok) {
     const { input, ledger } = sample.sample;
-    shown = { title: SAMPLE_TITLE, result: sample.sample, ledger, input, extra: null };
+    shown = { title: SAMPLE_TITLE, result: sample.sample, ledger, input, extra: null, timing: 'start', isSample: true };
   } else {
     if (sample.kind === 'loaded' && !sample.sample.ok) console.error('sample rejected', sample.sample.rejected);
     status =
@@ -100,7 +101,9 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
             {actions}
             <Hero title={shown.title} titleAs="p" result={shown.result} ledger={shown.ledger}>
               {shown.extra}
-              <ShareButtons result={shown.result} />
+              <ShareButtons result={shown.result}>
+                <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} isSample={shown.isSample} />
+              </ShareButtons>
             </Hero>
           </>
         ),

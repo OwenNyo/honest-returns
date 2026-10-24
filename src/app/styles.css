@@ -879,3 +879,86 @@ a {
 .button.secondary:hover {
   box-shadow: inset 0 0 0 2px var(--faded);
 }
+
+/* One-page PDF statement through print (spec 15.3), in the 11.3 light tokens. */
+@media screen {
+  .print-statement {
+    display: none;
+  }
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  body {
+    background: #fff;
+    color: #1e2a2f;
+  }
+  #root {
+    display: none;
+  }
+  .print-statement {
+    --paper: #1e2a2f;
+    --faded: #4a5a60;
+    --rule: #bfcbc2;
+    --pencil-blue: #2457a6;
+    --ledger-green: #1d6b50;
+    --brass: #f2dc4e;
+    display: grid;
+    gap: 3mm;
+    break-inside: avoid;
+    font-size: 10.5pt;
+    color: #1e2a2f;
+  }
+  .print-statement h1 {
+    font-size: 20pt;
+    font-weight: 800;
+  }
+  .ps-sub {
+    font-weight: 600;
+  }
+  .ps-rates {
+    display: flex;
+    gap: 10mm;
+    align-items: baseline;
+  }
+  .ps-rates strong {
+    font-size: 22pt;
+    font-weight: 800;
+    font-stretch: 75%;
+  }
+  .print-statement .nl-gap {
+    color: #1e2a2f;
+    font-size: 12pt;
+  }
+  .print-statement .nl-band,
+  .print-statement .nl-gap {
+    animation: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-statement .nl-axis {
+    height: 28px;
+  }
+  .print-statement .nl-mark,
+  .print-statement .nl-tick,
+  .print-statement .nl-axis::before {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .ps-explanation {
+    font-family: var(--serif);
+  }
+  .ps-chart {
+    width: 170mm;
+    height: 68mm;
+  }
+  .ps-notes {
+    margin: 0;
+    padding-left: 5mm;
+    font-size: 8.5pt;
+    display: grid;
+    gap: 1.5mm;
+  }
+}
