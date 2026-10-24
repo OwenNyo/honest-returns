@@ -136,7 +136,8 @@ Row level (all rows are checked; every failing row gets its first failing check 
 Ticker availability (after parse, from `/api/prices`; one rejection listing all, `line: null`, no compute):
 | code | message |
 |---|---|
-| `unsupported_tickers` | `These tickers are not supported yet: {list}. No results were calculated.` (list comma-separated, sorted) |
+| `unsupported_tickers` | `These tickers are not supported yet: {list}.` (list comma-separated, sorted; the Rejections list adds the closing "No results were calculated." line once) |
+| `too_many_tickers` | `A file can hold at most 50 different tickers; this one has {n}.` |
 | `prices_not_loaded` | `Prices for {list} are not loaded yet. Try again tomorrow.` |
 
 Engine (stateful; the engine stops at the first one to avoid knock-on errors):
@@ -405,7 +406,7 @@ Numbers are stored as strings. Tiingo and Frankfurter return JSON numbers; `Stri
 `GET /api/health` -> `200 {"ok":true}` (scaffold smoke test).
 
 `GET /api/prices?tickers=AAPL,VOO&from=2019-01-02`
-- zod (`src/shared/api.ts`): `tickers` 1 to 50 comma-separated, each `^[A-Z0-9.\-]{1,10}$` after upper-casing; `from` a real `YYYY-MM-DD`.
+- zod (`src/shared/api.ts`): `tickers` 0 to 50 comma-separated (an empty list is valid and returns only FX, with `asOf` = the last FX date), each `^[A-Z0-9.\-]{1,10}$` after upper-casing; `from` a real `YYYY-MM-DD`.
 - `400 {"error":"bad_request","message":"<zod issue, first only>"}`.
 - `200`:
 ```json

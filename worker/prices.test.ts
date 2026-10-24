@@ -86,6 +86,16 @@ test('lower-case tickers are upper-cased', async () => {
   expect(b.prices.VOO).toEqual([['2020-01-02', '300', '1', '0']]);
 });
 
+test('an empty ticker list returns fx only, with asOf the last fx date', async () => {
+  const b = await body('tickers=&from=2019-01-02');
+  expect(b).toEqual({
+    asOf: '2020-12-30',
+    prices: {},
+    fx: [...JSON.parse(FX_2018), ...JSON.parse(FX_2019), ...JSON.parse(FX_2020)],
+    unavailable: [],
+  });
+});
+
 test.each([
   ['51 tickers', `tickers=${Array.from({ length: 51 }, (_, i) => `T${i}`).join(',')}&from=2020-01-02`],
   ['missing from', 'tickers=TSTA'],

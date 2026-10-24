@@ -196,6 +196,10 @@ a {
   top: 0;
   white-space: nowrap;
 }
+.nl-label.twr,
+.nl-label.xirr {
+  padding: 0 3px;
+}
 .nl-label.center {
   transform: translateX(-50%);
 }
@@ -284,4 +288,93 @@ a {
 
 .status {
   padding-top: var(--space);
+}
+
+/* Upload, rejections and the timing toggle. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 20px;
+  background: var(--graphite);
+  color: var(--paper);
+  font-weight: 600;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.upload input:focus-visible + .button {
+  outline: 2px solid var(--pencil-blue);
+  outline-offset: 2px;
+}
+.link-button {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.file-status {
+  display: grid;
+  gap: var(--space);
+  padding-top: var(--space);
+  max-width: 70ch;
+}
+.rejections {
+  overflow-wrap: anywhere; /* the bad_header message holds one long unbroken line */
+}
+.rejections ul {
+  margin: 0 0 0.25rem;
+  padding-left: 1.25rem;
+}
+/* One reason reads as a line of text, flush with the paragraphs under it. */
+.rejections ul:has(> li:only-child) {
+  padding-left: 0;
+  list-style: none;
+}
+.rejections li + li {
+  margin-top: 0.25rem;
+}
+.timing {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+}
+.timing legend {
+  padding: 0;
+  width: 100%;
+  font-weight: 600;
+}
+.choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.choice input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--graphite);
 }

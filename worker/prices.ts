@@ -15,11 +15,15 @@ export async function getPrices(c: Context<{ Bindings: Env }>) {
   const db = c.env.DB;
   const marks = tickers.map(() => '?').join(',');
 
-  const known = await db
-    .prepare(`SELECT ticker, last_date FROM tickers WHERE ticker IN (${marks})`)
-    .bind(...tickers)
-    .all<{ ticker: string; last_date: string | null }>();
-  const lastDate = new Map(known.results.map((r) => [r.ticker, r.last_date]));
+  const known = tickers.length
+    ? (
+        await db
+          .prepare(`SELECT ticker, last_date FROM tickers WHERE ticker IN (${marks})`)
+          .bind(...tickers)
+          .all<{ ticker: string; last_date: string | null }>()
+      ).results
+    : [];
+  const lastDate = new Map(known.map((r) => [r.ticker, r.last_date]));
   const available = tickers.filter((t) => lastDate.get(t)).sort();
   const unavailable = tickers
     .filter((t) => !lastDate.get(t))
@@ -38,9 +42,9 @@ export async function getPrices(c: Context<{ Bindings: Env }>) {
   const fxRows = (await db.prepare('SELECT rows FROM fx WHERE year >= ? ORDER BY year').bind(minYear).all<{ rows: string }>())
     .results.map((r) => r.rows);
 
-  // asOf = min(last_date of available tickers, last fx date); null if either is missing.
+  // asOf = min(last_date of available tickers, last fx date); null if either is missing. No tickers requested: the last fx date.
   const lastFx = fxRows.length ? /"(\d{4}-\d{2}-\d{2})"[^\]]*\]\]$/.exec(fxRows[fxRows.length - 1])?.[1] : undefined;
-  const asOf = available.length && lastFx ? [...available.map((t) => lastDate.get(t)!), lastFx].sort()[0] : null;
+  const asOf = lastFx && (available.length || !tickers.length) ? [...available.map((t) => lastDate.get(t)!), lastFx].sort()[0] : null;
 
   const prices = [...byTicker].map(([t, rows]) => `${JSON.stringify(t)}:${joinRows(rows)}`).join(',');
   const body = `{"asOf":${JSON.stringify(asOf)},"prices":{${prices}},"fx":${joinRows(fxRows)},"unavailable":${JSON.stringify(unavailable)}}`;

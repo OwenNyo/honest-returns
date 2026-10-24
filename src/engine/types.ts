@@ -48,7 +48,7 @@ export type RejectionCode =
   | 'wrong_column_count' | 'bad_date' | 'bad_type' | 'bad_currency' | 'bad_number' | 'missing_field'
   | 'unexpected_field' | 'not_positive' | 'negative_fees' | 'flow_currency' | 'trade_currency' | 'fx_pair'
   | 'bad_ticker' | 'amount_mismatch' | 'fees_on_flow'
-  | 'unsupported_tickers' | 'prices_not_loaded'
+  | 'unsupported_tickers' | 'prices_not_loaded' | 'too_many_tickers'
   | 'after_as_of' | 'no_market_data' | 'not_trading_day' | 'negative_cash' | 'oversell'
   | 'dividend_unmatched' | 'dividend_duplicate';
 export interface Rejection { line: number | null; code: RejectionCode; message: string }
