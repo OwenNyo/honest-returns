@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { LOAD_ERROR, SAMPLE_TITLE } from './Analyse';
 import type { SampleState } from './App';
 import { Decomposition } from './Decomposition';
@@ -7,6 +6,7 @@ import { EmptyState } from './EmptyState';
 import { formatDate, formatPct, formatSgd } from './format';
 import { Hero } from './Hero';
 import { RawPricesPanel } from './RawPricesPanel';
+import { Scene } from './Scene';
 import { Link } from './router';
 import { Skeleton } from './Skeleton';
 import { storyFacts } from './story';
@@ -101,32 +101,35 @@ export function Home({ sample }: { sample: SampleState }) {
         </Scene>
       )}
 
-      <Scene title="Why the method matters">
+      <Scene title="Why the method matters" rows={
+        <div className="actions">
+          <Link href="/methodology" className="button secondary">
+            Read the methodology
+          </Link>
+        </div>
+      }>
         <RawPricesPanel input={s.input} twr={s.twr} />
         <p>
-          <Link href="/methodology">Read the methodology</Link>
+          Most charting sites use adjusted close, which folds later dividends and splits back into old prices. Honest Returns
+          values each day at the price that actually traded, converts it at that day's exchange rate, and books dividends as
+          cash rather than hiding them in the price. The methodology page lists every rule, with a figure for each.
         </p>
       </Scene>
 
-      <Scene title="Check your own file">
-        <p>Your file is read in this browser and never uploaded or stored.</p>
+      <Scene title="Check your own file" rows={
         <div className="actions">
           <Link href="/analyse" className="button">
             Check your own broker file
           </Link>
         </div>
+      }>
+        <p>
+          Export an activity statement from your broker and drop it here. The whole calculation runs in this browser: your
+          file is never uploaded and nothing about it is stored. Only the list of tickers and the first date leave your
+          device, to fetch prices. You get the same two numbers, the same breakdown, and a card or PDF to keep.
+        </p>
       </Scene>
     </main>
-  );
-}
-
-function Scene({ title, rows, children }: { title: string; rows?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="scene">
-      <h2>{title}</h2>
-      <div className="scene-prose">{children}</div>
-      {rows && <div className="rows">{rows}</div>}
-    </section>
   );
 }
 

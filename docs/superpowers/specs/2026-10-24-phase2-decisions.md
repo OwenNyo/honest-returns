@@ -78,7 +78,7 @@ Task 16 is built. After a successful result the file set, broker and flow timing
 
 ## Scene prose width (Owen, 2026-10-24)
 
-At 960px and up the scene grid is prose first (max 56ch, which measures about 62 characters per line in the serif at the body size) with the right column sized to its content and aligned to the right edge; replaces the 5fr/7fr split. Row tables, the years table and Methodology figures keep their width and sit at the right edge; a lone action button sits at the right edge level with the first line of prose.
+At 960px and up the scene grid is prose first (max 56ch, which measures about 62 characters per line in the serif at the body size) with the right column sized to its content and aligned to the right edge; replaces the 5fr/7fr split. Row tables, the years table and Methodology figures keep their width and sit at the right edge; a lone action button sits at the right edge level with the first line of prose. On Methodology from 1152px the right column is a fixed 28rem in every section, with or without a figure, so every prose block has the same measure. Between 960 and 1151px Methodology is one column, with each figure under its prose, so the prose keeps its measure.
 
 ## Methodology sections removed (Owen, 2026-10-24)
 
