@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { LOAD_ERROR, SAMPLE_TITLE } from './Analyse';
 import type { SampleState } from './App';
+import { Decomposition } from './Decomposition';
 import { EmptyState } from './EmptyState';
 import { formatDate, formatPct, formatSgd } from './format';
 import { Hero } from './Hero';
@@ -90,7 +91,7 @@ export function Home({ sample }: { sample: SampleState }) {
         {s.explanation && <p>{s.explanation}</p>}
       </Scene>
 
-      <Scene title="What the exchange rate did">
+      <Scene title="What the exchange rate did" rows={s.decomposition && <Decomposition d={s.decomposition} />}>
         <p>
           The shares are priced in USD but the result is in SGD, so the USD/SGD rate moves the result. USD/SGD went from{' '}
           {f.fxFrom.rate.toFixed(4)} on {formatDate(f.fxFrom.date)} to {f.fxTo.rate.toFixed(4)} on {formatDate(f.fxTo.date)}.

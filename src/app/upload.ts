@@ -1,13 +1,13 @@
 import { compute } from '../engine/compute';
 import { toFx, toPriceSeries } from '../engine/load-market';
-import type { ComputeResult, FlowTiming, IsoDate, LedgerRow, Rejection } from '../engine/types';
+import type { ComputeInput, ComputeResult, FlowTiming, IsoDate, LedgerRow, Rejection } from '../engine/types';
 import { detectFormat } from '../importers/detect';
 import { importIbkr } from '../importers/ibkr';
 import { ledgerTickers, parseCsv } from '../shared/csv';
 import { fetchPrices, firstDate } from './data';
 
 export type UploadOutcome =
-  | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; tickers: string[]; ledger: LedgerRow[]; notices: string[] }
+  | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; tickers: string[]; ledger: LedgerRow[]; notices: string[]; input: ComputeInput }
   | { kind: 'rejected'; rejected: Rejection[] }
   | { kind: 'empty' };
 
@@ -46,7 +46,8 @@ export async function runUpload(text: string, fetchFn: typeof fetch = fetch, tim
   if (availability.length) return { kind: 'rejected', rejected: availability };
   if (body.asOf === null) return { kind: 'empty' }; // spec 15.1.3: nothing is cached yet
 
-  const result = compute({ ledger: rows, prices: toPriceSeries(body.prices), fx: toFx(body.fx), endDate: body.asOf, flowTiming: timing });
+  const input = { ledger: rows, prices: toPriceSeries(body.prices), fx: toFx(body.fx), endDate: body.asOf, flowTiming: timing };
+  const result = compute(input);
   if (!result.ok) return { kind: 'rejected', rejected: result.rejected };
-  return { kind: 'result', result, asOf: body.asOf, tickers, ledger: rows, notices: ibkr?.notices ?? [] };
+  return { kind: 'result', result, asOf: body.asOf, tickers, ledger: rows, notices: ibkr?.notices ?? [], input };
 }

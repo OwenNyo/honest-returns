@@ -623,20 +623,30 @@ a {
   accent-color: var(--brass);
 }
 
-/* Broker picker (decision "Analyse page broker picker"). */
+/* Broker picker (decision "Analyse page broker picker"): one row above the result on desktop. */
 .upload-block {
-  display: grid;
-  gap: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem 2rem;
+  padding-top: var(--space);
 }
 .picker {
   margin: 0;
   padding: 0;
   border: 0;
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 24px;
 }
 .picker legend {
   padding: 0;
   font-weight: 600;
+}
+@media (max-width: 959px) {
+  .picker {
+    display: grid;
+  }
 }
 .picker .disabled {
   color: var(--faded);
@@ -806,4 +816,33 @@ a {
   border-left: 4px solid var(--brass);
   padding-left: 1rem;
   max-width: 34em;
+}
+
+/* Analyse sections after Returns. */
+.analyse-section + .analyse-section {
+  margin-top: calc(var(--space) * 2.5);
+  display: grid;
+  gap: var(--space);
+}
+.section-title {
+  font-size: var(--step-3);
+  font-weight: 800;
+  line-height: 1.1;
+}
+.section-body {
+  display: grid;
+  gap: var(--space);
+  max-width: 40em;
+}
+.section-intro {
+  font-family: var(--serif);
+  font-size: var(--step-1);
+  line-height: 1.6;
+}
+.row.total {
+  font-weight: 700;
+  padding-top: 0.5rem;
+}
+.row.total > span:first-child {
+  color: var(--paper);
 }

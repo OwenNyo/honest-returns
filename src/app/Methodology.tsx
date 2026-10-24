@@ -80,6 +80,21 @@ export function Methodology() {
         </p>
       </Section>
 
+      <Section id="decomposition" title="Where the gain came from">
+        <p>
+          The total gain is the end value minus the money put in, in SGD. It is split per day. The exchange rate effect is
+          the USD held at the start of the day times the change in the rate. The conversion cost is the SGD value given up
+          on each conversion against the reference rate of that day. Dividends are the net dividend cash at that day's
+          rate. The price effect is what is left, so it includes trade fees and the difference between trade prices and
+          closes, and the parts always add up to the total exactly.
+        </p>
+        <p>
+          The split is in SGD, not percentage points. For one holding, the SGD return is (1 + price return) x (1 + rate
+          return) - 1, so the two effects interact, and splitting percentages over many days needs a linking method this
+          site does not use.
+        </p>
+      </Section>
+
       <Section id="annualising" title="Annualising">
         <p>
           Periods over {DAYS_PER_YEAR} days are annualised with a {DAYS_PER_YEAR}-day year. Shorter periods show the total
