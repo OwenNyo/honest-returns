@@ -5,3 +5,4 @@ node_modules/
 dist/
 .wrangler/
 out/
+src/engine/fixtures/sample-market.json
