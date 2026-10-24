@@ -109,6 +109,16 @@ export function Methodology() {
         </p>
       </Section>
 
+      <Section id="raw-prices" title="Why raw prices">
+        <p>
+          Many charting sites show adjusted close: past prices rewritten so that later dividends and splits are already
+          inside them. For one position bought once and held, that gives the right return. Once money is added over time,
+          it values the earlier holdings at prices that never traded, so the daily values and the TWR drift from what the
+          account was worth. This site values each day at the close that traded that day and applies splits to the
+          holding on the split date. The Analyse page shows how far the adjusted-close TWR would be from yours.
+        </p>
+      </Section>
+
       <Section id="annualising" title="Annualising">
         <p>
           Periods over {DAYS_PER_YEAR} days are annualised with a {DAYS_PER_YEAR}-day year. Shorter periods show the total

@@ -6,6 +6,7 @@ import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { Hero } from './Hero';
+import { RawPricesPanel } from './RawPricesPanel';
 import { Rejections } from './Rejections';
 import { ResultTabs, type Tab } from './ResultTabs';
 import { SectionList } from './SectionList';
@@ -120,6 +121,11 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
                   {w.message}
                 </p>
               ))}
+          </div>
+        ),
+        'raw-prices': (
+          <div className="section-body">
+            <RawPricesPanel input={shown.input} twr={shown.result.twr} />
           </div>
         ),
       }

@@ -6,6 +6,7 @@ import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { formatDate, formatPct, formatSgd } from './format';
 import { Hero } from './Hero';
+import { RawPricesPanel } from './RawPricesPanel';
 import { Link } from './router';
 import { Skeleton } from './Skeleton';
 import { storyFacts } from './story';
@@ -109,13 +110,7 @@ export function Home({ sample }: { sample: SampleState }) {
       )}
 
       <Scene title="Why the method matters">
-        {f.split && (
-          <p>
-            On {formatDate(f.split.date)} {f.split.ticker} split {f.split.after.div(f.split.before).toString()} for 1: the
-            holding went from {f.split.before.toString()} to {f.split.after.toString()} shares and the price fell by the same
-            factor, so the value did not jump.
-          </p>
-        )}
+        <RawPricesPanel input={s.input} twr={s.twr} />
         <p>
           <Link href="/methodology">Read the methodology</Link>
         </p>
