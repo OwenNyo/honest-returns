@@ -1,4 +1,5 @@
 import { daysBetween } from '../shared/dates';
+import { D } from './decimal';
 import { decompose } from './decompose';
 import { explainGap, yearlyTwr } from './explain';
 import { annualise, dailyReturns, twr } from './twr';
@@ -30,6 +31,13 @@ export function compute(input: ComputeInput): ComputeResult {
   const t = annualise(twr(series), daysBetween(first, input.endDate));
   const yearReturns = yearlyTwr(series);
   const deposits = input.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
+  // The opening value is an inflow (decision 2): that day's net flow less its DEPOSIT and WITHDRAW rows.
+  for (const date of new Set(input.ledger.filter((r) => r.type === 'OPENING').map((r) => r.date))) {
+    const rowFlow = input.ledger
+      .filter((r) => r.date === date && (r.type === 'DEPOSIT' || r.type === 'WITHDRAW'))
+      .reduce((s, r) => (r.type === 'DEPOSIT' ? s.plus(r.amount) : s.minus(r.amount)), D(0));
+    deposits.push({ date, amount: series.find((p) => p.date === date)!.netFlowSgd.minus(rowFlow) });
+  }
   const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
   const { dividends } = valued;
   const decomposition = decompose(series, input.ledger, input.fx, dividends);

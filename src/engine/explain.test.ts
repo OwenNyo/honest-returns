@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { parseCsv } from '../shared/csv';
+import { compute } from './compute';
 import { D } from './decimal';
 import { explainGap, yearlyTwr } from './explain';
 import type { IsoDate, RateResult, ValuationPoint, XirrResult } from './types';
@@ -145,5 +147,35 @@ describe('explainGap, spec 10.7 rules', () => {
       deposits: [dep('2019-01-01', 10), dep('2020-02-01', 90)],
     });
     expect(out).toBe('XIRR is lower than TWR because 90% of your deposits arrived after 2019, the strongest year (+10.0%).');
+  });
+});
+
+// Task 15 addendum: the opening value is an external inflow, so the sentence counts it as a deposit.
+describe('compute explanation with an OPENING position', () => {
+  test('counts the opening value as a deposit dated the period start', () => {
+    const { rows, rejected } = parseCsv(
+      [
+        'date,type,ticker,quantity,price,currency,amount,fees',
+        '2020-01-01,OPENING,VOO,100,10,USD,1000,0',
+        '2022-01-03,DEPOSIT,,,,SGD,250,0',
+        '2022-01-03,FX,USD,250,,SGD,250,0',
+        '2022-01-03,BUY,VOO,50,5,USD,250,0',
+      ].join('\n'),
+    );
+    if (rejected.length) throw new Error('test ledger invalid: ' + JSON.stringify(rejected));
+    const bar = (date: IsoDate, close: number) => ({ date, close: D(close), splitFactor: D(1), divCash: D(0) });
+    // 2020 flat, 2021 -50%, 2022 +100%. The 250 deposit is bought into the 2022 rise, so XIRR > TWR.
+    const res = compute({
+      ledger: rows,
+      prices: {
+        VOO: [bar('2020-01-01', 10), bar('2021-06-01', 5), bar('2022-01-03', 5), bar('2022-06-01', 10)],
+      },
+      fx: [{ date: '2020-01-01', sgdPerUsd: D(1) }],
+      endDate: '2022-12-31',
+    });
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res.rejected));
+    // Opening 1000 of 1250 total inflows arrived before 2022: rule 8 with 80%.
+    // Counting DEPOSIT rows only would give rule 9 with 100% after the 2021 fall.
+    expect(res.explanation).toBe('XIRR is higher than TWR because 80% of your deposits arrived before the 2022 gain of 100.0%.');
   });
 });
