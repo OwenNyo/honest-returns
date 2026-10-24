@@ -3,7 +3,7 @@ import { D } from '../engine/decimal';
 import type { Ccy, LedgerRow, Rejection, RejectionCode, RowType } from '../engine/types';
 import { isIsoDate } from './dates';
 
-const HEADER = 'date,type,ticker,quantity,price,currency,amount,fees';
+export const HEADER = 'date,type,ticker,quantity,price,currency,amount,fees';
 const MAX_ROWS = 10000;
 const TYPES: RowType[] = ['DEPOSIT', 'WITHDRAW', 'FX', 'BUY', 'SELL', 'DIVIDEND', 'OPENING'];
 const NUMBER = /^-?\d+(\.\d+)?$/;

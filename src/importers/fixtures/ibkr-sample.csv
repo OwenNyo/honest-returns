@@ -1,0 +1,60 @@
+﻿Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,"Interactive Brokers Singapore Pte. Ltd., GST 000000000Z"
+Statement,Data,Title,Activity Statement
+Statement,Data,Period,"January 1, 2026 - March 31, 2026"
+Statement,Data,WhenGenerated,"2026-04-01, 09:00:00 EDT"
+Change in NAV,Header,Field Name,Field Value
+Change in NAV,Data,Starting Value,"30,910"
+Mark-to-Market Performance Summary,Header,Asset Category,Symbol,Prior Quantity,Current Quantity,Prior Price,Current Price,Mark-to-Market P/L Position,Mark-to-Market P/L Transaction,Mark-to-Market P/L Commissions,Mark-to-Market P/L Other,Mark-to-Market P/L Total,Code
+Mark-to-Market Performance Summary,Data,Stocks,VOO,20,20,"1,000",1000,0,0,0,0,0,
+Mark-to-Market Performance Summary,Data,Stocks,AAPL,10,6,200,250,500,0,0,0,500,
+Mark-to-Market Performance Summary,Data,Stocks,MSFT,0,5,--,400,0,0,-1,0,-1,
+Mark-to-Market Performance Summary,Data,Total,,,,,,500,0,-1,0,499,
+Mark-to-Market Performance Summary,Data,Equity and Index Options,VOO 15MAY26 500 C,0,0,--,--,0,20,-2,0,18,
+Mark-to-Market Performance Summary,Data,Forex,USD,600,919.5,1.35,1.3,0,0,0,0,0,
+Mark-to-Market Performance Summary,Data,Total (All Assets),,,,,,500,20,-3,0,517,
+Cash Report,Header,Currency Summary,Currency,Total,Securities,Futures,
+Cash Report,Data,Starting Cash,Base Currency Summary,1210,1210,0,
+Cash Report,Data,Deposits,Base Currency Summary,2000,2000,0,
+Cash Report,Data,Ending Cash,Base Currency Summary,1830.35,1830.35,0,
+Cash Report,Data,Starting Cash,SGD,400,400,0,
+Cash Report,Data,Ending Cash,SGD,635,635,0,
+Cash Report,Data,Starting Cash,USD,600,600,0,
+Cash Report,Data,Ending Cash,USD,919.5,919.5,0,
+Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code
+Open Positions,Data,Summary,Stocks,USD,VOO,20,1,900,18000,1000,20000,2000,
+Open Positions,Data,Summary,Stocks,USD,AAPL,6,1,150,900,250,1500,600,
+Open Positions,Data,Summary,Stocks,USD,MSFT,5,1,400,2000,400,2000,0,
+Open Positions,Total,,Stocks,USD,,,,,22900,,23500,600,
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,USD,MSFT,"2026-02-02, 10:15:32",5,400,400,-2000,-1,2001,0,0,O
+Trades,SubTotal,,Stocks,USD,MSFT,,5,,,-2000,-1,2001,0,0,
+Trades,Data,Order,Stocks,USD,AAPL,"2026-03-02, 11:00:00",-4,250,250,1000,-1,-600,399,0,C
+Trades,SubTotal,,Stocks,USD,AAPL,,-4,,,1000,-1,-600,399,0,
+Trades,Total,,Stocks,USD,,,,,,-1000,-2,1401,399,0,
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Equity and Index Options,USD,VOO 15MAY26 500 C,"2026-02-03, 09:45:00",1,1,1.2,-100,-1,101,0,20,O
+Trades,Data,Order,Equity and Index Options,USD,VOO 15MAY26 500 C,"2026-02-10, 09:45:00",-1,1.2,1.2,120,-1,-101,18,0,C
+Trades,Total,,Equity and Index Options,USD,,,,,,20,-2,0,18,20,
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,,Proceeds,Comm in SGD,,,MTM in SGD,Code
+Trades,Data,Order,Forex,SGD,USD.SGD,"2026-02-01, 20:00:00",1500,1.35,,-2025,0,,,0,
+Trades,Data,Order,Forex,SGD,USD.SGD,"2026-03-05, 20:00:00",-200,1.3,,260,0,,,0,
+Trades,SubTotal,,Forex,SGD,USD.SGD,,1300,,,-1765,0,,,0,
+Trades,Total,,Forex,SGD,,,,,,-1765,0,,,0,
+Deposits & Withdrawals,Header,Currency,Settle Date,Description,Amount
+Deposits & Withdrawals,Data,SGD,2026-02-01,Electronic Fund Transfer,2000
+Deposits & Withdrawals,Data,Total,,,2000
+Dividends,Header,Currency,Date,Description,Amount
+Dividends,Data,USD,2026-03-12,MSFT(US5949181045) Cash Dividend USD 1.00 per Share (Ordinary Dividend),5
+Dividends,Data,Total,,,5
+Dividends,Data,Total in SGD,,,6.5
+Withholding Tax,Header,Currency,Date,Description,Amount,Code
+Withholding Tax,Data,USD,2026-03-12,MSFT(US5949181045) Cash Dividend USD 1.00 per Share - US Tax,-1.5,
+Withholding Tax,Data,Total,,,-1.5,
+Withholding Tax,Data,Total in SGD,,,-1.95,
+Financial Instrument Information,Header,Asset Category,Symbol,Description,Conid,Security ID,Underlying,Listing Exch,Multiplier,Type,Code
+Financial Instrument Information,Data,Stocks,AAPL,APPLE INC,1,US0378331005,AAPL,NASDAQ,1,COMMON,
+Financial Instrument Information,Data,Stocks,MSFT,MICROSOFT CORP,2,US5949181045,MSFT,NASDAQ,1,COMMON,
+Financial Instrument Information,Data,Stocks,VOO,VANGUARD S&P 500 ETF,3,US9229083632,VOO,ARCA,1,ETF,
+Financial Instrument Information,Header,Asset Category,Symbol,Description,Conid,Underlying,Listing Exch,Multiplier,Expiry,Delivery Month,Type,Strike,Code
+Financial Instrument Information,Data,Equity and Index Options,VOO 15MAY26 500 C,VOO 15MAY26 500 C,4,VOO,CBOE,100,2026-05-15,2026-05,C,500,
