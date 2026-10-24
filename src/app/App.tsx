@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FlowTiming, Rejection } from '../engine/types';
 import { detectFormat } from '../importers/detect';
 import { Analyse } from './Analyse';
+import type { InputFile } from './combine';
 import type { Broker } from './BrokerPicker';
 import { loadSample, type SampleLoaded } from './data';
 import { Home } from './Home';
@@ -14,19 +15,23 @@ import { runUpload, type UploadOutcome } from './upload';
 export type SampleState = { kind: 'loading' } | { kind: 'error' } | { kind: 'empty' } | { kind: 'loaded'; sample: SampleLoaded };
 export type FileState =
   | { kind: 'none' }
-  | { kind: 'running'; name: string }
-  | { kind: 'error'; name: string }
-  | { kind: 'empty'; name: string }
-  | { kind: 'mismatch'; name: string; message: string }
-  | { kind: 'rejected'; name: string; rejected: Rejection[] }
-  | { kind: 'result'; name: string; text: string; timing: FlowTiming; out: UploadOutcome & { kind: 'result' } };
+  | { kind: 'running'; files: InputFile[] }
+  | { kind: 'error'; files: InputFile[] }
+  | { kind: 'empty'; files: InputFile[] }
+  | { kind: 'mismatch'; files: InputFile[]; message: string }
+  | { kind: 'rejected'; files: InputFile[]; rejected: Rejection[] }
+  | { kind: 'result'; files: InputFile[]; timing: FlowTiming; out: UploadOutcome & { kind: 'result' } };
 
 // Decision "broker picker": a file whose detected format differs from the pick is not computed.
 const FORMAT_NAME = { canonical: 'a plain CSV', ibkr: 'an Interactive Brokers activity statement' };
-function mismatch(text: string, picked: Broker): string | null {
-  const detected = detectFormat(text);
-  if (detected === 'unknown' || detected === picked) return null;
-  return `This looks like ${FORMAT_NAME[detected]} file, not ${FORMAT_NAME[picked]} file.`;
+function mismatch(files: InputFile[], picked: Broker): string | null {
+  for (const f of files) {
+    const detected = detectFormat(f.text);
+    if (detected === 'unknown' || detected === picked) continue;
+    const message = `This looks like ${FORMAT_NAME[detected]} file, not ${FORMAT_NAME[picked]} file.`;
+    return files.length > 1 ? `${f.name}: ${message}` : message;
+  }
+  return null;
 }
 
 export function App() {
@@ -51,19 +56,19 @@ export function App() {
     if (location.hash) scrollToHash(location.hash);
   }, [path]);
 
-  async function check(name: string, text: string, timing: FlowTiming = 'start') {
+  async function check(files: InputFile[], timing: FlowTiming = 'start') {
     setTab('file');
-    const wrong = mismatch(text, broker);
-    if (wrong) return setFile({ kind: 'mismatch', name, message: wrong });
-    setFile({ kind: 'running', name });
+    const wrong = mismatch(files, broker);
+    if (wrong) return setFile({ kind: 'mismatch', files, message: wrong });
+    setFile({ kind: 'running', files });
     try {
-      const out = await runUpload(text, fetch, timing);
-      if (out.kind === 'result') setFile({ kind: 'result', name, text, timing, out });
-      else if (out.kind === 'empty') setFile({ kind: 'empty', name });
-      else setFile({ kind: 'rejected', name, rejected: out.rejected });
+      const out = await runUpload(files, fetch, timing);
+      if (out.kind === 'result') setFile({ kind: 'result', files, timing, out });
+      else if (out.kind === 'empty') setFile({ kind: 'empty', files });
+      else setFile({ kind: 'rejected', files, rejected: out.rejected });
     } catch (e) {
       console.error(e);
-      setFile({ kind: 'error', name });
+      setFile({ kind: 'error', files });
     }
   }
 
@@ -78,8 +83,9 @@ export function App() {
         onTab={setTab}
         broker={broker}
         onBroker={setBroker}
-        onFile={(name, text) => check(name, text)}
-        onTiming={(t) => file.kind === 'result' && check(file.name, file.text, t)}
+        onFiles={(files) => check(files)}
+        onAddFiles={(files) => file.kind !== 'none' && check([...file.files, ...files])}
+        onTiming={(t) => file.kind === 'result' && check(file.files, t)}
       />
     );
   else if (path === '/methodology')

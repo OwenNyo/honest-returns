@@ -1,11 +1,13 @@
 import { type ReactNode, useState } from 'react';
 import type { ComputeInput, ComputeResult, FlowTiming, LedgerRow } from '../engine/types';
 import type { FileState, SampleState } from './App';
+import type { InputFile } from './combine';
 import { Benchmark, useBenchmark } from './BenchmarkSelect';
 import { BrokerPicker, type Broker } from './BrokerPicker';
 import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
+import { FileList } from './FileList';
 import { Hero } from './Hero';
 import { PrintButton } from './PrintButton';
 import { RawPricesPanel } from './RawPricesPanel';
@@ -29,21 +31,24 @@ type Props = {
   onTab: (t: Tab) => void;
   broker: Broker;
   onBroker: (b: Broker) => void;
-  onFile: (name: string, text: string) => void;
+  onFiles: (files: InputFile[]) => void;
+  onAddFiles: (files: InputFile[]) => void;
   onTiming: (t: FlowTiming) => void;
 };
 
 // Spec 15.1.5: tabs, then the result in sections. Sections render only when their data exists.
-export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, onTiming }: Props) {
+export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFiles, onAddFiles, onTiming }: Props) {
   const actions = (
     <div className="upload-block">
       <BrokerPicker value={broker} onChange={onBroker} />
       <div className="actions">
-        <Upload onFile={onFile} />
+        <Upload onFiles={onFiles} />
+        {tab === 'file' && file.kind !== 'none' && <Upload onFiles={onAddFiles} label="Add another file" secondary />}
       </div>
     </div>
   );
-  const fileTitle = file.kind === 'none' ? '' : `Your file (${file.name})`;
+  const fileTitle =
+    file.kind === 'none' ? '' : file.files.length > 1 ? `Your files (${file.files.length})` : `Your file (${file.files[0].name})`;
 
   let shown: { title: string; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming; isSample: boolean } | null = null;
   let status: ReactNode = null;
@@ -51,6 +56,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
     const { result, ledger, input, notices } = file.out;
     const extra = (
       <>
+        {file.files.length > 1 && <FileList periods={file.out.periods} />}
         {notices.map((n) => (
           <p key={n} className="notice">
             {n}

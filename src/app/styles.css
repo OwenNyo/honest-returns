@@ -962,3 +962,9 @@ a {
     gap: 1.5mm;
   }
 }
+
+.file-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--faded);
+}

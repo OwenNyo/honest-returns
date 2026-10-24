@@ -53,8 +53,10 @@ export type RejectionCode =
   | 'unsupported_tickers' | 'prices_not_loaded' | 'too_many_tickers'
   | 'after_as_of' | 'no_market_data' | 'not_trading_day' | 'negative_cash' | 'oversell'
   | 'dividend_unmatched' | 'dividend_duplicate'
-  | 'benchmark_unavailable'; // spec 10.14: the benchmark is not shown
-export interface Rejection { line: number | null; code: RejectionCode; message: string }
+  | 'benchmark_unavailable' // spec 10.14: the benchmark is not shown
+  | 'overlapping_files'; // spec 15.4: combining files
+// file: set only when several files are combined (spec 15.4); the engine never sets it.
+export interface Rejection { line: number | null; code: RejectionCode; message: string; file?: string }
 
 export interface Warning {
   code: 'fx_carried' | 'twr_negative_base' | 'xirr_multiple_roots' | 'dividend_on_ex_date';
