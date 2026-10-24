@@ -1,4 +1,5 @@
 import type { Rejection } from '../engine/types';
+import { RequestTickers, unsupportedTickers } from './RequestTickers';
 
 // Spec 10.2: one line per rejection, file-level ones without the line prefix.
 export function Rejections({ rejected }: { rejected: Rejection[] }) {
@@ -10,6 +11,11 @@ export function Rejections({ rejected }: { rejected: Rejection[] }) {
         ))}
       </ul>
       <p>No results were calculated.</p>
+      {rejected
+        .filter((r) => r.code === 'unsupported_tickers')
+        .map((r) => (
+          <RequestTickers key={r.message} tickers={unsupportedTickers(r.message)} />
+        ))}
     </div>
   );
 }

@@ -8,10 +8,12 @@ Owen runs these steps. They need a Cloudflare login, so the driver only checked 
 2. Create the database: `npx wrangler d1 create honest-returns`. Copy the `database_id` it prints into `wrangler.jsonc`, replacing `00000000-0000-0000-0000-000000000000`. Commit that change.
 3. Create the tables and load the 400-ticker allowlist: `npx wrangler d1 migrations apply honest-returns --remote`
 4. Add the Tiingo key as a secret: `npx wrangler secret put TIINGO_TOKEN` and paste the key at the prompt. Do not put it in a file or a commit.
+   Then add the salt for hashed client IPs on ticker requests: `npx wrangler secret put REQUEST_SALT` and paste any long random string. Without it the Worker logs a warning and uses a public dev salt.
 
 ## Each deploy
 
 5. `npm run deploy` (runs `vite build`, then `wrangler deploy`). It prints the `*.workers.dev` URL.
+   If `migrations/` has a file the remote database has not run yet (for example `0003_ticker_requests.sql`), run step 3 first.
 6. To undo a bad deploy: `npx wrangler rollback`.
 
 ## First data load

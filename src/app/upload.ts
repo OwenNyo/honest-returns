@@ -13,6 +13,7 @@ export type UploadOutcome =
 
 const MAX_TICKERS = 50; // the /api/prices limit (spec 9.2)
 const list = (tickers: string[]) => [...tickers].sort().join(', ');
+export const UNSUPPORTED_PREFIX = 'These tickers are not supported yet: ';
 
 // Spec 10.2: parse, then ticker availability, then compute to asOf. Any rejection means no numbers.
 export async function runUpload(text: string, fetchFn: typeof fetch = fetch, timing: FlowTiming = 'start'): Promise<UploadOutcome> {
@@ -35,7 +36,7 @@ export async function runUpload(text: string, fetchFn: typeof fetch = fetch, tim
     availability.push({
       line: null,
       code: 'unsupported_tickers',
-      message: `These tickers are not supported yet: ${list(unsupported)}.`,
+      message: `${UNSUPPORTED_PREFIX}${list(unsupported)}.`,
     });
   if (notLoaded.length)
     availability.push({

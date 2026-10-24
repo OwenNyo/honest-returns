@@ -553,6 +553,7 @@ a {
   background: var(--brass);
   color: var(--ink);
   font-weight: 700;
+  border: 0;
   border-radius: 2px;
   font-family: var(--sans);
   text-decoration: none;

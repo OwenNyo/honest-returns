@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { appendYearRows, refresh } from './refresh';
 
 const testEnv = () => ({ DB: env.DB, TIINGO_TOKEN: 'test-token' });
@@ -211,4 +211,92 @@ test('a 404 sets refreshed_on and the run continues', async () => {
   expect(await tickerRow('TSTA')).toEqual({ last_date: null, refreshed_on: '2026-10-24' });
   expect(s.tiingoTickers()).toEqual(['TSTA', 'TSTB']);
   expect(out.stoppedOn).toBeUndefined();
+});
+
+// Task 20, spec 9.3 step 4 and 10.8: queued ticker requests are fetched first, within the same 45-call budget.
+describe('queued ticker requests', () => {
+  const clearRequests = () => env.DB.prepare('DELETE FROM ticker_requests').run();
+  beforeEach(clearRequests);
+  afterEach(clearRequests);
+
+  async function seedRequests(rows: [ticker: string, requestedOn: string, status: string][]) {
+    for (const [t, on, status] of rows) {
+      await env.DB.prepare('INSERT INTO ticker_requests (ticker, requested_on, status) VALUES (?,?,?)').bind(t, on, status).run();
+    }
+  }
+  const requestRow = (t: string) =>
+    env.DB.prepare('SELECT status, resolved_on FROM ticker_requests WHERE ticker = ?').bind(t).first<{ status: string; resolved_on: string | null }>();
+
+  test('queued requests are fetched oldest first, before allowlist refreshes', async () => {
+    await seedTickers([['TSTA', 1, null, null]]);
+    await seedRequests([
+      ['QNEW2', '2026-10-20', 'queued'],
+      ['QNEW1', '2026-10-10', 'queued'],
+      ['QDONE', '2026-10-01', 'added'],
+      ['QGONE', '2026-10-01', 'not_found'],
+    ]);
+    const s = stub({});
+    await refresh(testEnv(), NIGHT, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual(['QNEW1', 'QNEW2', 'TSTA']);
+  });
+
+  test('queued requests and refreshes share the 45-call budget', async () => {
+    await seedRequests(Array.from({ length: 40 }, (_, i) => [`Q${String(i).padStart(2, '0')}`, '2026-10-01', 'queued'] as [string, string, string]));
+    await seedTickers(Array.from({ length: 10 }, (_, i) => [`T${i}`, 0, null, null] as [string, number, null, null]));
+    const s = stub({});
+    await refresh(testEnv(), NIGHT, s.fetchFn);
+    const called = s.tiingoTickers();
+    expect(called).toHaveLength(45);
+    expect(called.slice(0, 40).every((t) => t.startsWith('Q'))).toBe(true);
+  });
+
+  test('more than 45 queued requests leave the rest queued', async () => {
+    await seedRequests(Array.from({ length: 50 }, (_, i) => [`Q${String(i).padStart(2, '0')}`, '2026-10-01', 'queued'] as [string, string, string]));
+    await refresh(testEnv(), NIGHT, stub({}).fetchFn);
+    const left = await env.DB.prepare("SELECT COUNT(*) AS n FROM ticker_requests WHERE status = 'queued'").first<{ n: number }>();
+    expect(left!.n).toBe(5);
+  });
+
+  test('a queued ticker is backfilled from 2005-01-01', async () => {
+    await seedRequests([['QNEW', '2026-10-20', 'queued']]);
+    const s = stub({});
+    await refresh(testEnv(), NIGHT, s.fetchFn);
+    expect(new URL(s.calls[0].url).searchParams.get('startDate')).toBe('2005-01-01');
+  });
+
+  test('a 404 marks the request not_found and does not add the ticker', async () => {
+    await seedRequests([['QNEW', '2026-10-20', 'queued']]);
+    await refresh(testEnv(), NIGHT, stub({ QNEW: () => new Response('not found', { status: 404 }) }).fetchFn);
+    expect(await requestRow('QNEW')).toEqual({ status: 'not_found', resolved_on: '2026-10-24' });
+    expect(await tickerRow('QNEW')).toBeNull();
+  });
+
+  test('a successful fetch marks the request added', async () => {
+    await seedRequests([['QNEW', '2026-10-20', 'queued']]);
+    await refresh(testEnv(), NIGHT, stub({ QNEW: () => Response.json([item('2026-10-23', 10)]) }).fetchFn);
+    expect(await requestRow('QNEW')).toEqual({ status: 'added', resolved_on: '2026-10-24' });
+  });
+
+  test('a successful fetch adds the ticker to the allowlist with priority 0', async () => {
+    await seedRequests([['QNEW', '2026-10-20', 'queued']]);
+    await refresh(testEnv(), NIGHT, stub({ QNEW: () => Response.json([item('2026-10-23', 10)]) }).fetchFn);
+    const row = await env.DB.prepare('SELECT priority, last_date, refreshed_on FROM tickers WHERE ticker = ?').bind('QNEW').first();
+    expect(row).toEqual({ priority: 0, last_date: '2026-10-23', refreshed_on: '2026-10-24' });
+  });
+
+  test('a successful fetch writes the prices', async () => {
+    await seedRequests([['QNEW', '2026-10-20', 'queued']]);
+    await refresh(testEnv(), NIGHT, stub({ QNEW: () => Response.json([item('2026-10-23', 10)]) }).fetchFn);
+    expect(await yearRows('QNEW', 2026)).toEqual([['2026-10-23', '10', '1', '0']]);
+  });
+
+  test('HTTP 429 on a queued ticker stops the run and leaves it queued', async () => {
+    await seedTickers([['TSTA', 1, null, null]]);
+    await seedRequests([['QNEW', '2026-10-20', 'queued']]);
+    const s = stub({ QNEW: () => new Response('slow down', { status: 429 }) });
+    const out = await refresh(testEnv(), NIGHT, s.fetchFn);
+    expect(out.stoppedOn).toBe('QNEW');
+    expect(s.tiingoTickers()).toEqual(['QNEW']);
+    expect(await requestRow('QNEW')).toEqual({ status: 'queued', resolved_on: null });
+  });
 });

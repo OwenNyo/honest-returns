@@ -23,3 +23,11 @@ export const PricesResponse = z.object({
   unavailable: z.array(z.object({ ticker: z.string(), reason: z.enum(['not_on_allowlist', 'no_data_yet']) })),
 });
 export type PricesResponse = z.infer<typeof PricesResponse>;
+
+// Spec 10.8: POST /api/ticker-requests body.
+export const TickerRequestBody = z.object({
+  tickers: z
+    .array(z.string().transform((t) => t.trim().toUpperCase()).pipe(z.string().regex(TICKER, 'each ticker must be 1 to 10 characters A to Z, 0 to 9, dot or hyphen')))
+    .min(1, 'tickers must list at least one ticker')
+    .max(10, 'tickers can list at most 10 tickers'),
+});
