@@ -104,3 +104,23 @@ Spec section 16, Tasks 31 to 33. When an upload has tickers with no price data, 
 ## Site footer (2026-10-24)
 
 Home ended at the closing button with no closure, so a footer was added to every page (spec 11c): brand, Analyse, Methodology and GitHub links, and the Tiingo, ECB and TradingView credits. The Home closing scene is unchanged.
+
+## Third round (2026-10-25)
+
+Spec section 17, Tasks 34 to 38. Explorer readings, settled by Owen at the checkpoint the same day: items 3 and 7 confirmed as written, items 4 and 5 changed, item 11 added.
+
+1. **moomoo goes ahead without a real export.** Overrides Checkpoint 1 decision 11 for moomoo only: the importer is built from third-party reports and a synthetic fixture, and the plan (Task 37) lists what to check when Owen supplies a file. The file read is the order history CSV from the desktop app (Trade History, History tab), not a statement: Singapore statements are PDF only.
+2. **Tiger stays blocked** on a real sample file. No public header list exists. Its tile stays "coming soon".
+3. **moomoo funding** (confirmed by Owen): each day's net USD shortfall over the file's own fills becomes a same-day USD DEPOSIT, and the user is told in a notice. Rejected: refusing trade-only files (moomoo would stay unusable), and an SGD DEPOSIT plus an FX row at the ECB rate (invents a conversion and a zero conversion cost). USD DEPOSIT rows reach the parser through a `usdFlows` option that only the moomoo path sets; plain files still reject them with `flow_currency`.
+4. **Explanation deposits count USD DEPOSIT rows** at the day's rate, **read from the ledger before exclusion** (Owen). Changes the "Partial reports" item 3 rule ("only SGD DEPOSIT rows count"): without it, every moomoo report gets the generic sentence. `runUpload` passes `combined.rows` (held before `excludeTickers` runs) as `ComputeInput.originalLedger`, so the synthetic USD deposits from excluded sales and dividends never count as money put in. Home uses the same `explanationDeposits` function. Spec 16.2 change 3 and 17.1.8.
+5. **moomoo orders on other markets are left out with a notice** (Owen; replaces the reject rule in the brief): `{n} orders on {markets} markets were left out; this report covers US trades only.` They are never checked, converted or funded. A US-market order not in USD is still rejected with `trade_currency`.
+6. **One moomoo file per report** (`moomoo_files`): funding starts from zero cash in each file, so two files would count money in twice.
+7. **Largest fall and volatility** sit in their own Scene on Analyse and Home, not in the Returns hero, because "Home hero shows the numbers only" fixes the hero's contents. Both come from the TWR daily returns, so flows are not falls. Volatility: sample standard deviation of every calendar day's return times `sqrt(365)`, shown from 90 days (confirmed by Owen).
+8. **Fees and tax in the decomposition**: a `fees` line (BUY and SELL fees at the row date's rate) comes out of the price residual; identity `totalGain = local + fx - conversionCost - fees + dividends`. Dividends show before tax with `US tax withheld` as its own line, so every row still adds up to Total gain. Golden D: local 140 (was 138.7), fees 1.3.
+9. **Calendar-year table** on Analyse only, all years, partial years labelled with their days, shown from two years. Home already has the per-year rows in `Why they differ`, so it gets no second table.
+10. **Analyse section order**: Returns, Year by year, Largest fall and volatility, Where the gain came from, Dividends, Against a single fund, Why raw prices. On Home the risk Scene follows `Why they differ`. No scroll-spy at seven sections.
+11. **moomoo Fill Time is Singapore time** (Owen): a fill before 09:00 is dated the previous calendar day, because US regular and extended sessions run from about 16:00 to 08:00 Singapore time. `08:59:59` on 15 March gives 14 March; `09:00:00` gives 15 March. A `ponytail:` ceiling (zone label ignored, overnight session not handled), on the Task 37 list of checks against a real export. Spec 17.1.5.
+
+## Remove file on a failed upload (2026-10-25)
+
+Every state after an upload shows a remove button, not only a result. On a rejected, empty, mismatched or errored upload it reads `Remove file`, clears the file state and clears the saved set in localStorage, so nothing comes back on reload. Owen asked for it after a rejected IBKR file left no way back to the empty page.

@@ -627,3 +627,170 @@ Blocked until Task 15 (IBKR importer with `OPENING` rows) is merged.
 - PDF: an off-screen second chart in light colours for the print image, and the `buildChart` refactor it needs.
 - Combining IBKR statements: one extra `valueDaily` pass per later statement for reconciliation (ceiling: files x days).
 - Partial reports (Tasks 31 to 33): `Rejection.tickers` replaces parsing tickers back out of the rejection message, because a second consumer (the continue button) now needs them.
+
+---
+
+## Third round (spec section 17)
+
+Order: 34, 35, 36, 37, 38. Each task leaves a working app. Run commands from the repo root. After each task: the task's tests, `npm run typecheck` and `npm run build`. Commits: one line, stage files by name.
+
+### Task 34: Trading fees and US tax as decomposition lines (spec 17.3)
+
+**Files:**
+- Modify: `src/engine/types.ts` (`Decomposition.fees`, `totalGain` comment), `src/engine/decompose.ts` (fees per day; `local` no longer absorbs them), `src/app/Decomposition.tsx` (`decompositionRows`, new rows), `src/app/Analyse.tsx` (decomposition intro copy), `src/app/Methodology.tsx` (decomposition paragraph, spec 17.3.3)
+- Test: `src/engine/decompose.test.ts` (update), create `src/app/decomposition.test.ts`
+
+**Interfaces:**
+- Produces: `Decomposition.fees: Decimal` (SGD, positive is a cost); `decompositionRows(d: Decomposition): { label: string; value: Decimal; total?: true }[]`.
+
+- [ ] **Step 1: Update and add failing tests** in `src/engine/decompose.test.ts`:
+  - `identity` becomes `local + fx - conversionCost - fees + dividends == totalGain` (every existing identity test uses it).
+  - Golden D1: `local price effect is 140 SGD (fees are their own line)`: `local.toFixed(10)` = `140.0000000000` (was 138.7). New: `trading fees are 1.3 SGD (1 USD x 1.30)`: `fees.toFixed(10)` = `1.3000000000`. FX 104.9, conversionCost 35, totalGain 208.6 unchanged.
+  - Golden D2: `local, FX and conversion are unchanged from D1` expects `['140.0000000000', '104.9000000000', '35.0000000000']`; new `fees are 1.3 SGD`; totalGain 213.5 and identity; withholding 2.1 unchanged.
+  - USD-to-SGD FX variant: `fees` `0.0000000000`, `fx` 100 and `local` 0 unchanged.
+  - Golden C1 through `compute`: `a DIVIDEND row's withholding is not a trading fee`: `decomposition.fees` = `0.0000000000`.
+  - Sample (skips without the local fixture): `fees` 0 and the new identity holds exactly.
+- [ ] **Step 2:** `src/app/decomposition.test.ts`:
+  - `D2 rows in order`: labels and `value.toFixed(2)`: `Price 140.00`, `Exchange rate 104.90`, `Dividends before tax 7.00`, `US tax withheld -2.10`, `Conversion cost -35.00`, `Trading fees -1.30`, `Total gain 213.50` (last has `total: true`).
+  - `D1 rows`: no dividend or tax rows: `Price`, `Exchange rate`, `Conversion cost`, `Trading fees`, `Total gain`.
+  - `rows add up to Total gain exactly` for D1 and D2 (sum of all rows but the last `.eq(totalGain)`).
+  - `no fees row when fees are 0` (build a `Decomposition` by hand with fees 0).
+- [ ] **Step 3:** Run `npx vitest run --project unit src/engine/decompose.test.ts src/app/decomposition.test.ts`. Expected: FAIL.
+- [ ] **Step 4:** Implement per spec 17.3.1 and 17.3.3. `Decomposition` renders `decompositionRows` with `signedSgd`; the `total` row keeps class `row total`.
+- [ ] **Step 5: Verify.** `npx vitest run --project unit src/engine src/app` PASS (goldens A to F otherwise unchanged); `npm run typecheck`; `npm run build`. In `npm run dev`, Home `Where the gain came from` shows `Dividends before tax` +SGD 3,757.44 and `US tax withheld` -SGD 1,127.23 and no `Trading fees` row; screenshot at 360 px and 1280 px.
+- [ ] **Step 6: Commit** `feat: trading fees and us tax as their own decomposition lines`.
+
+### Task 35: Largest fall and volatility in the engine (spec 17.2.1, 17.2.2)
+
+**Files:**
+- Create: `src/engine/risk.ts`, `src/engine/risk.test.ts` (Golden G inline)
+- Modify: `src/engine/types.ts` (`Risk`, optional `risk` on the `ok: true` branch), `src/engine/constants.ts` (`MIN_VOLATILITY_DAYS = 90`), `src/engine/compute.ts` (attach `risk`)
+
+**Interfaces:**
+- Produces: `maxDrawdown(series): { maxDrawdown: Decimal; peakDate: IsoDate | null; troughDate: IsoDate | null }`; `volatility(series): Decimal`; `ComputeResult.risk?: Risk`.
+
+- [ ] **Step 1: Write failing tests** in `src/engine/risk.test.ts` (assert `toFixed(10)`):
+  - `Golden G, start timing: largest fall is -0.25 from 2021-06-02 to 2021-06-04`.
+  - `Golden G, end timing: the same largest fall and dates`.
+  - `Golden G: the value fell 62.5% but the withdrawal is not a fall` (the 2021-06-04 `valueSgd` is 585 against 1560 on 2021-06-02, and `maxDrawdown` is still `-0.2500000000`).
+  - `Golden G: volatility(series) is 2.9108786106`.
+  - `Golden G: compute risk.volatility is null under 90 days`.
+  - `Golden A: no fall, peakDate and troughDate null`.
+  - `Golden D1: a first-day fall is measured from the start: -0.0259285714 on 2021-06-01` (peak and trough both 2021-06-01).
+  - `ties keep the earliest trough`: a hand-built three-day series with `dailyReturn` [-0.5, 1, -0.5] (index 0.5, 1, 0.5, exact in Decimal) gives largest fall `-0.5000000000`, peak and trough both the first date (day 3 ties day 1 and does not replace it).
+  - Sample (skip without the local fixture), start timing: `-0.2892571569`, `2020-02-14`, `2020-03-23`, volatility `0.2496930424`; end timing: `-0.2867883528`, volatility `0.2501337305`.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/engine/risk.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement per 17.2.1. Decimal throughout (`D.sqrt`), no floats.
+- [ ] **Step 4: Verify.** `npx vitest run --project unit src/engine` PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: largest fall and volatility from daily twr returns`.
+
+### Task 36: Year by year, and largest fall and volatility, on Analyse and Home (spec 17.2.3, 17.4, 17.5)
+
+**Files:**
+- Create: `src/app/Risk.tsx` (`RiskRows`)
+- Modify: `src/app/format.ts` (`yearLabel`, `riskText`), `src/app/sections.ts` (two entries), `src/app/sections.test.ts` (SPEC list), `src/app/Analyse.tsx` (`years` and `risk` bodies), `src/app/Home.tsx` (risk Scene after `Why they differ`)
+- Test: `src/app/format.test.ts`, `src/app/sections.test.ts`
+
+**Interfaces:**
+- Consumes: `ComputeResult.yearReturns`, `ComputeResult.risk`.
+- Produces: `yearLabel(y: YearReturn): string`; `riskText(r: Risk): string`; `RiskRows({ risk }: { risk: Risk })`.
+
+- [ ] **Step 1: Write failing tests.**
+  - `yearLabel`: `{ year: 2020, days: 366 }` gives `2020`; `{ year: 2021, days: 365 }` gives `2021`; `{ year: 2019, days: 364 }` gives `2019 (364 days)`; `{ year: 2024, days: 365 }` gives `2024 (365 days)` (leap year).
+  - `riskText`: largest fall -0.2892571569 from 2020-02-14 to 2020-03-23, volatility 0.2496930424 gives exactly `The largest fall of the TWR line from an earlier high was 28.9%, from 14 Feb 2020 to 23 Mar 2020. Volatility is how far daily returns swing, as a standard deviation scaled to a year. Both use the daily returns behind TWR, so a withdrawal is not a fall and a deposit does not hide one.`
+  - `riskText`: largest fall 0 and volatility null gives `The TWR line never fell below an earlier high. Volatility is how far daily returns swing, as a standard deviation scaled to a year. It needs at least 90 days of data. Both use the daily returns behind TWR, so a withdrawal is not a fall and a deposit does not hide one.`
+  - `sections.test.ts` SPEC: `returns`, `years` (`Year by year`), `risk` (`Largest fall and volatility`), `decomposition`, `dividends`, `benchmark`, `raw-prices`.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/format.test.ts src/app/sections.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+  - `RiskRows`: `Largest fall` (`formatPct(maxDrawdown, 1)` or `None` at 0); `Volatility` `{x}% a year` when not null.
+  - Analyse `years`: `Scene` with the prose of 17.4 and rows `yearLabel(y)` / `formatPct(y.twr, 1)`, only when `yearReturns.length >= 2`. Analyse `risk`: `Scene` with `riskText` and `RiskRows` when `risk` exists.
+  - Home: `<Scene title="Largest fall and volatility" rows={<RiskRows risk={s.risk} />}>` with `riskText`, after `Why they differ`. No change to Home's year table.
+- [ ] **Step 4: Verify.** Tests PASS; `npm run typecheck`; `npm run build`. In `npm run dev`, screenshots at 360 px and 1280 px: Home risk scene reads `28.9%`, `14 Feb 2020 to 23 Mar 2020`, `Volatility 25.0% a year`; Analyse with Golden A as a file (one year) shows no `Year by year` section and a risk section saying the TWR line never fell; Analyse with a two-year file shows the year rows with partial years labelled in days; the section row at 360 px scrolls sideways and reaches all seven links.
+- [ ] **Step 5: Commit** `feat: year by year returns and largest fall and volatility sections`.
+
+### Task 37: moomoo order history importer (spec 17.1.1 to 17.1.7, 17.1.9)
+
+**UNVERIFIED AGAINST A REAL EXPORT.** Built from third-party reports and a synthetic fixture. When Owen supplies a real anonymised export, copy it to `src/importers/fixtures/moomoo-real.csv` (gitignored, never committed) and check, in this order:
+1. The header is the first line, and the exact names of `Side`, `Symbol`, `Fill Qty`, `Fill Price`, `Fill Amount`, `Fill Time`, `Markets`, `Currency`, `Filled@Avg Price` and every fee column.
+2. Side values for buys and sells, and how short sales and options appear (an option symbol should fail `bad_ticker`).
+3. Fill Time format and time zone. The importer reads Singapore time and dates a fill before 09:00 to the previous day (spec 17.1.5, a `ponytail:` ceiling). Compare a few fills, including one after Singapore midnight and one in pre-market, with the US trading date in the app. If the export is in another zone or carries a zone label, replace the cutoff with the conversion named in the 17.1.5 note. Also check whether times are 12-hour with AM/PM.
+4. Sub-fill layout: does the order row carry the first fill, the order total, or nothing? Does `sum(Fill Qty)` per order equal `Filled@Avg Price`?
+5. Fees: on each fill row, only on the order row, or repeated on every row; and their currency for US trades.
+6. `Fill Amount` equals `Fill Qty x Fill Price` within 0.01 (else `amount_mismatch` rejects every such row).
+7. Number formats: thousands separators, signs, `--`, fractional shares.
+8. Status text of a partly filled then cancelled order, and that it still has its fill rows.
+9. `Markets` value for US stocks and ETFs, and that orders on other markets carry their own `Markets` value (they are left out by it).
+10. Whether the export date range can start at the account's first trade (else `oversell`).
+11. Whether a Singapore account's columns differ from the Malaysian list.
+Then add a test that reads the real file (skips when absent): no rejections, `parseCsv(csv, { usdFlows: true })` clean, and the funding total compared by hand with the user's actual deposits.
+
+**Files:**
+- Create: `src/importers/moomoo.ts`, `src/importers/moomoo.test.ts`, `src/importers/fixtures/moomoo-sample.csv` (exact content in spec 17.1.9)
+- Modify: `src/shared/csv.ts` (export `splitLine`, moved from `ibkr.ts`; `parseCsv(text, { usdFlows })`), `src/importers/ibkr.ts` (import `splitLine`), `src/importers/detect.ts` (`moomoo`), `src/engine/types.ts` (`RejectionCode` gains `fill_mismatch`, `moomoo_files`), `.gitignore` (`src/importers/fixtures/moomoo-real.csv`)
+
+**Interfaces:**
+- Produces: `importMoomoo(text: string): MoomooImport` (spec 17.1.2); `detectFormat(text): 'canonical' | 'ibkr' | 'moomoo' | 'unknown'`; `parseCsv(text: string, opts?: { usdFlows?: boolean })`; `splitLine(line: string): string[]` from `src/shared/csv.ts`.
+
+- [ ] **Step 1: Write failing tests** in `src/importers/moomoo.test.ts`. Build small files in the test from a helper that takes `{ column: value }` objects and the 36-column header, so each case is short; the fixture is read with `?raw` like `ibkr.test.ts` does.
+  - `detectFormat recognises the fixture as moomoo`; `a canonical file and an IBKR statement are still canonical and ibkr`; `a header with Side and Symbol but no Fill Qty is unknown`.
+  - `the fixture converts to the expected canonical CSV` (exact text of spec 17.1.9) `with lines [2, 2, 4, 5, 5, 6, 7, 9, 9]`, `rejected` empty.
+  - `period is the first and last fill date`: `{ from: '2024-03-05', to: '2024-03-12' }`.
+  - `notices name the funding total, the skipped orders and the markets left out` (the three exact strings of 17.1.9, in order).
+  - `a fill after Singapore midnight takes the previous US date`: fixture line 6 (`Mar 9, 2024 03:00:03`) gives a SELL dated `2024-03-08`; line 9 (`Mar 13, 2024 02:05:00`) a BUY dated `2024-03-12`.
+  - `a fill row with empty Side and Symbol belongs to the order above it` (fixture line 5 becomes `BUY VOO 1 400.5`).
+  - `cancelled, failed and queued orders with no fill are skipped, even on another market` (TSLA and D05 absent, no rejection).
+  - `a partly filled order counts with what was filled` (VOO: 3 of 5).
+  - `fills listed newest first give the same CSV` (fixture order blocks reversed: same `csv`; `lines` follow the new file lines).
+  - `a sale and a buy on the same day net before funding`: SELL 4 AAPL at 160 (fees 2.03) and BUY 1 VOO at 410 (fees 1.99) on one day after a funded buy: no DEPOSIT that day.
+  - `one funded day reads 1 day in the notice`.
+  - `columns are found by name`: the same order with columns in another order gives the same rows.
+  - `missing fee columns count as 0`: header with only the 7 required columns plus `Commission`; Commission 0.99 gives `fees` 0.99.
+  - `the fill part of Markets and Currency is used when the order part is empty`: accepted.
+  - `a missing required column rejects the file`: no `Fill Price` gives `[{ line: null, code: 'bad_header', message: 'This moomoo file is missing these columns: Fill Price.' }]`.
+  - `filled orders on other markets are left out with a notice`: the fixture's HK order (line 10) is not in the output and its fill is not funded. A file with filled orders on SG (2 orders) and HK (1 order) plus one US order gives `3 orders on HK and SG markets were left out; this report covers US trades only.`; one SG order gives `1 order on SG market was left out; this report covers US trades only.`
+  - `a left-out order is never checked`: a filled SG order with Fill Qty `abc` gives no rejection.
+  - `a US order not in USD is rejected`: Markets `US`, Currency `HKD`, Fill Qty 10 gives `{ line, code: 'trade_currency', message: 'Only US trades in USD can be measured; this order is in HKD.' }`.
+  - `Side other than Buy or Sell is rejected`: `Short Sell` gives `bad_type`, `Side must be Buy or Sell.`
+  - `Fill Time is Singapore time with a 09:00 cutoff` (spec 17.1.5): `2024/03/15 08:59:59` gives `2024-03-14` (before the boundary); `2024/03/15 09:00:00` gives `2024-03-15` (on the boundary); `2024/03/15 03:15:00` gives `2024-03-14`; `2024-03-01 02:00:00` gives `2024-02-29`; `Mar 15, 2024 3:15 AM` gives `2024-03-14`; `Mar 15, 2024 9:00 PM` gives `2024-03-15`; `2024-03-15 21:30:00 ET` gives `2024-03-15` (label ignored).
+  - `a Fill Time without a valid date and time is rejected`: `05/03/2024 10:00`, `2024/03/15` and `2024/03/15 25:00` each give `bad_date`, `Fill Time must be a date and time like 2024/03/05 21:30:00 or Mar 5, 2024 21:30:00.`
+  - `a non-number is rejected`: Fill Qty `abc` gives `bad_number`, `Fill Qty must be a number.`
+  - `fills that differ from Filled@Avg Price are rejected`: order row `3@400.17` with fills 2 gives `fill_mismatch`, `Fills add up to 2 shares, but the order shows 3 filled.`, on the order row line.
+  - `a file with no filled US order is rejected`: no fills at all, and filled HK orders only, each give `empty_file`, `The file has no filled orders on the US market.`
+  - `the output parses only with usdFlows`: `parseCsv(csv, { usdFlows: true })` has no rejections and three USD DEPOSIT rows; `parseCsv(csv)` rejects lines 3, 6 and 10 with `flow_currency`.
+  - `a real export converts without rejections` (`describe.skipIf` when `moomoo-real.csv` is absent).
+  - In `src/shared/csv.test.ts`: `a USD DEPOSIT in a plain file is still rejected with flow_currency` (existing behaviour, default options).
+- [ ] **Step 2:** Run `npx vitest run --project unit src/importers src/shared`. Expected: FAIL.
+- [ ] **Step 3:** Implement per 17.1.2 to 17.1.7. Reuse `splitLine`, `HEADER`, `isIsoDate`, `D`. `ibkr.test.ts` must pass unchanged after `splitLine` moves.
+- [ ] **Step 4: Verify.** `npx vitest run --project unit src/importers src/shared` PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: moomoo order history importer (unverified against a real export)`.
+
+### Task 38: moomoo in uploads, the picker and the explanation (spec 17.1.8)
+
+**Files:**
+- Modify: `src/app/combine.ts` (moomoo branch, `moomoo_files` rule), `src/engine/types.ts` (`ComputeInput.originalLedger`), `src/engine/compute.ts` (`explanationDeposits`, exported: DEPOSIT rows in either currency from the original ledger), `src/app/upload.ts` (`originalLedger: combined.rows` on `computeInput`: the Analyse call site), `src/app/Home.tsx` (deposits from `explanationDeposits(s.ledger, s.series)`, line 33), `src/app/BrokerPicker.tsx` (`moomoo` option), `src/app/App.tsx` (`FORMAT_NAME.moomoo`), `src/app/saved.ts` (accept `moomoo`)
+- Test: `src/app/combine.test.ts`, `src/app/upload.test.ts`, `src/app/saved.test.ts`, `src/engine/compute.test.ts`
+
+**Interfaces:**
+- Consumes: `importMoomoo`, `parseCsv(text, { usdFlows })`.
+- Produces: `explanationDeposits(ledger: LedgerRow[], series: ValuationPoint[], original: LedgerRow[] = ledger): { date: IsoDate; amount: Decimal }[]`; `ComputeInput.originalLedger?: LedgerRow[]`; `Broker` gains `'moomoo'`.
+
+- [ ] **Step 1: Write failing tests.**
+  - `combine.test.ts`: `a moomoo file converts with its USD deposits and its own period` (`periods` `2024-03-05` to `2024-03-12`, three USD DEPOSIT rows); `an engine rejection maps back to the moomoo file line` (through `runUpload` with a stub body that has a bar on the sale date: a moomoo file whose only fill is a SELL gives `oversell` on that fill's moomoo line); `two moomoo files are rejected with moomoo_files` (exact message of 17.1.8); `a moomoo file and a canonical file with separate periods combine`.
+  - `upload.test.ts`: `the moomoo fixture computes with funding deposits` using the stub body of spec 17.1.9: last `netInvestedSgd` `3807.6615`, last `valueSgd` `4050`, last USD cash `0`, `twr.value.toFixed(10)` `0.0649010829`, XIRR `0.0710198440`, `decomposition.fees.toFixed(10)` `13.4865000000`, `notices` include the funding notice.
+  - `compute.test.ts`: `explanationDeposits counts USD deposits at the day's rate` on the moomoo output: `[2024-03-05 2027.6865, 2024-03-06 1623.3615, 2024-03-12 156.6135]`; `excluded sales and dividends never count as deposits`: on the spec 16.4 ledger, `explanationDeposits(reduced, series, original)` gives only `2754` on 2024-01-02 (the USD deposits 438 and 8.5 from ZZZ are left out), while `explanationDeposits(reduced, series)` without the original would also give `586.92` and `11.39` (shows why the original is passed); `compute` with `originalLedger` set gives the same explanation as before this task on that ledger; Golden A gives `1400` and `600` (unchanged); an OPENING day still adds the opening value as before (existing OPENING tests pass).
+  - `upload.test.ts`: `runUpload passes the ledger before exclusion`: the 16.4 CSV with `exclude: ['ZZZ']` gives `out.input.originalLedger` containing the ZZZ BUY row (type `BUY`, ticker `ZZZ`) and `out.input.ledger` not containing it; without `exclude`, `originalLedger` equals the combined rows.
+  - `saved.test.ts`: `broker moomoo round-trips`; the `schwab` case stays invalid.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/combine.test.ts src/app/upload.test.ts src/app/saved.test.ts src/engine/compute.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement per 17.1.8. Home's explanation sentence for the sample must not change (check the hero text before and after).
+- [ ] **Step 4: Verify.** Tests PASS; `npx vitest run --project unit` PASS; `npm run typecheck`; `npm run build`. In `npm run dev` with `moomoo-sample.csv` and stub or real prices for AAPL and VOO, screenshots at 360 px and 1280 px: the moomoo tile is selectable with its note; picking Interactive Brokers and dropping the moomoo file shows `This looks like a moomoo order history file, not an Interactive Brokers activity statement file.`; the result shows both notices; dropping two moomoo files shows the `moomoo_files` rejection; reload restores the saved moomoo report.
+- [ ] **Step 5: Commit** `feat: moomoo uploads with funding deposits and the broker tile`.
+
+Task 22 note: the moomoo half of Task 22 is replaced by Tasks 37 and 38. Tiger stays blocked on a real sample file (spec 17.1.10).
+
+### Incidental complexity (third round)
+
+- `parseCsv` `usdFlows` option: exists only so importer output can carry USD deposits while plain files still cannot.
+- `moomoo_files` rule: exists because funding is worked out per file; the alternative (funding over the merged ledger) would need cash rules for every other format inside `combine.ts`.
+- `fill_mismatch` check: exists only because the sub-fill layout is unverified; remove it if the real export shows fills cannot be repeated.
+- `ComputeInput.originalLedger`: exists only so the explanation reads deposits from before exclusion; the engine otherwise works on the reduced ledger.
+- The 09:00 Singapore-time cutoff on Fill Time: a guess at the export's zone, to be replaced by a real conversion once a file shows it.

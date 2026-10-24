@@ -1217,7 +1217,7 @@ Why USD flow rows and not SGD WITHDRAW or a new row type:
 Engine changes this needs (small, both in existing code paths):
 1. `valuation.ts` `cashDeltas`: DEPOSIT and WITHDRAW move `r.currency` instead of always SGD. For SGD rows nothing changes.
 2. `valuation.ts` day loop: a USD DEPOSIT or WITHDRAW adds its signed amount to the USD amount that is already converted at the day's rate in step 5 (today `openingUsd`), instead of to `netFlow` directly. So `netFlowSgd` holds the SGD equivalent.
-3. `compute.ts`, explanation deposits: only SGD DEPOSIT rows count as the investor's deposits (`r.currency === 'SGD'`). On an OPENING date, the opening value is that day's `netFlowSgd` less all of that day's DEPOSIT and WITHDRAW rows, USD rows converted at that point's `fxRate`, so excluded flows on the opening date are not counted as opening value.
+3. `compute.ts`, explanation deposits: only SGD DEPOSIT rows count as the investor's deposits (`r.currency === 'SGD'`). Amended 2026-10-25 (Owen, spec 17.1.8): DEPOSIT rows in either currency count, USD at the day's rate, but they are read from the ledger before exclusion (`ComputeInput.originalLedger`, set by `runUpload` to the combined rows before `excludeTickers`), so the synthetic USD deposits from excluded sales and dividends never count as money put in. On an OPENING date, the opening value is that day's `netFlowSgd` less all of that day's DEPOSIT and WITHDRAW rows, USD rows converted at that point's `fxRate`, so excluded flows on the opening date are not counted as opening value.
 
 The parser is unchanged: a file with a USD DEPOSIT or WITHDRAW is still rejected with `flow_currency`. USD flows only come from `excludeTickers`.
 
@@ -1317,3 +1317,344 @@ Visible side effects, accepted: the money-in line on the chart steps down on exc
 - FX conversions made to fund excluded buys stay in the measured portfolio, so their conversion cost or gain is in its return. Small for a minority holding; large in relative terms when most of the money went to the excluded ticker.
 - Excluding most of a portfolio leaves a small base; daily returns on it can be large and `twr_negative_base` can fire on days when an excluded buy takes most of the value.
 - A later statement whose only opening rows are excluded positions (no opening cash rows) is dropped from reconciliation, so its cash is not checked.
+
+## 17. Third round (2026-10-25): moomoo, largest fall and volatility, fee and tax lines, calendar years
+
+Added 2026-10-25. Decisions are recorded in `2026-10-24-phase2-decisions.md` under "Third round (2026-10-25)". Plan Tasks 34 to 38. Amended the same day with Owen's checkpoint answers (17.7): explanation deposits from the ledger before exclusion, non-US moomoo orders left out with a notice, Fill Time read as Singapore time.
+
+State of the code when this was written: tasks 1 to 33 are built. Pieces reused below (paths are real):
+- Engine: `compute` (`src/engine/compute.ts`), `dailyReturns` and `twr` (`src/engine/twr.ts`), `yearlyTwr` (`src/engine/explain.ts`, gives `YearReturn { year, twr, days }`), `decompose` (`src/engine/decompose.ts`), `DAYS_PER_YEAR` (`src/engine/constants.ts`).
+- Import: `detectFormat` (`src/importers/detect.ts`), `importIbkr` and its private `splitLine` (`src/importers/ibkr.ts`), `parseCsv` (`src/shared/csv.ts`), `combineFiles` (`src/app/combine.ts`).
+- UI: `Scene` (`src/app/Scene.tsx`), `SECTIONS` (`src/app/sections.ts`), `Decomposition` and `signedSgd` (`src/app/Decomposition.tsx`), `DividendRows` (`src/app/Dividends.tsx`), `formatPct`, `formatSgd`, `formatDate` (`src/app/format.ts`), `BrokerPicker` (`src/app/BrokerPicker.tsx`), `FORMAT_NAME` and `mismatch` (`src/app/App.tsx`), `loadLedger` (`src/app/saved.ts`).
+
+### 17.1 moomoo order history importer
+
+#### 17.1.1 Source and status
+
+moomoo has no CSV account statement; Singapore statements are PDF only. The CSV people use is the order history: desktop app, Trade History widget, History tab, choose a date range, download icon (or the Orders page on the web). Each row is a placed order or one fill of it, not a settled trade. Everything below comes from third-party reports, chiefly one Universal Account export from a Malaysian user. **No real Singapore export has been seen.** The importer is built against a synthetic fixture and is marked unverified in the UI copy and in the plan (Task 37 lists what to check when Owen supplies a real file).
+
+Reported header, in order (36 columns; `Markets` and `Currency` appear twice, first for the order, then for the fill):
+`Side, Symbol, Name, Order Price, Order Qty, Order Amount, Status, Filled@Avg Price, Order Time, Order Type, Time-in-Force, Allow Pre-Market, Session, Trigger price, Position Opening, Markets, Currency, Order Source, Fill Qty, Fill Price, Fill Amount, Fill Time, Markets, Currency, Counterparty, Remarks, Commission, Platform Fees, Clearing Fee, Stamp Duty, Settlement Fee, Consolidated Audit Trail Fees, Trading Activity Fee, SST, SEC Fee, Total`
+
+#### 17.1.2 Interface and detection
+
+`importMoomoo(text: string): MoomooImport` in `src/importers/moomoo.ts`:
+```ts
+export interface MoomooImport {
+  csv: string;               // canonical CSV text, header line first
+  rejected: Rejection[];     // line = line in the moomoo file
+  notices: string[];
+  period: { from: IsoDate; to: IsoDate } | null; // first and last fill date; null when nothing was filled
+  lines: number[];           // moomoo file line of each output row: lines[i] for the row on csv line i + 2
+}
+```
+Same shape as `IbkrImport` without `sections` (a moomoo file has no sections).
+
+`splitLine` moves from `src/importers/ibkr.ts` to `src/shared/csv.ts` as an export, unchanged; both importers import it.
+
+`detectFormat` returns `'canonical' | 'ibkr' | 'moomoo' | 'unknown'`. A file is `moomoo` when its first line (BOM stripped), split with `splitLine` and each cell trimmed, contains the cells `Side`, `Symbol` and `Fill Qty`. Checked after `ibkr` and `canonical`.
+
+#### 17.1.3 Columns
+
+Columns are found by header name (trimmed, exact case), never by position, so a reordered or shorter export still reads.
+- Required: `Side`, `Symbol`, `Markets`, `Currency`, `Fill Qty`, `Fill Price`, `Fill Time`. Any missing: one file-level rejection, `bad_header`, `line: null`, message `This moomoo file is missing these columns: {list}.` (list in the order above, comma-separated). Nothing else is checked.
+- Optional: `Fill Amount`, `Filled@Avg Price`, and the fee columns `Commission`, `Platform Fees`, `Clearing Fee`, `Stamp Duty`, `Settlement Fee`, `Consolidated Audit Trail Fees`, `Trading Activity Fee`, `SST`, `SEC Fee`. A missing fee column counts as 0. Fee columns differ by region (SG adds Platform Fees and Clearing Fee; US trades add SEC Fee, Trading Activity Fee and CAT fees), so none is required.
+- Ignored: every other column, including `Status` and `Total` (it is not known whether `Total` is the fee total or the order total).
+- A name that appears twice (`Markets`, `Currency`): a row's value is the first non-empty of its two cells.
+- Cell values: trimmed; `--` is read as empty. Numbers: commas removed, then they must match `^-?\d+(\.\d+)?$`; the absolute value is used (no sign is relied on).
+
+#### 17.1.4 Orders and fills
+
+Rows are read in file order after the header; blank lines are skipped.
+1. A row with a non-empty `Side` starts an order. A row with an empty `Side` is another fill of the current order and takes `Side`, `Symbol`, `Markets` and `Currency` from the order row when its own are empty. A fill row before any order row is rejected with `bad_type` (message below).
+2. A row is a fill when `Fill Qty` is non-empty and greater than zero. An order whose rows have no fill is skipped and counted, whatever its Status says (queued, failed and cancelled orders). A partly filled order counts with what was filled. Status text is not read: the fill columns are the record of what happened.
+3. When the order row's `Filled@Avg Price` matches `^([\d,]+(\.\d+)?)@` and the sum of the order's `Fill Qty` differs from that quantity, the order is rejected with `fill_mismatch` on the order row. This guards against an export that repeats the order total on the order row as well as on each fill row, which would double the trade.
+4. A filled order whose `Markets` is not `US` is left out whole: none of its fills are checked, converted or funded, and it is counted per market for the notice in 17.1.7. A filled order on `US` whose `Currency` is not `USD` is rejected with `trade_currency`. This check runs before item 3 and the row checks, so a left-out order can never reject the file. An order whose `Markets` cells are both empty or `--` is left out the same way and named `unknown` in the notice (`1 order on unknown market was left out; ...`).
+
+Each fill becomes one canonical row:
+
+| canonical field | value |
+|---|---|
+| date | the date part of `Fill Time` (17.1.5) |
+| type | `BUY` when Side is `Buy`, `SELL` when `Sell` (case-insensitive) |
+| ticker | `Symbol`, upper-cased |
+| quantity | `Fill Qty` |
+| price | `Fill Price` |
+| currency | `USD` |
+| amount | `Fill Amount` when the column exists and the cell is non-empty, else `Fill Qty x Fill Price` |
+| fees | sum of the fee columns on that row |
+
+`parseCsv` then applies its normal checks, including `amount_mismatch` (tolerance 0.01) and `bad_ticker`, and the rejection lines are mapped back to the moomoo file through `lines`, as for IBKR.
+
+Fills are stable-sorted by date before output (moomoo lists newest first), so rows of one date keep their file order. Output per date: that date's fills, then that date's funding row (17.1.6) if any.
+
+#### 17.1.5 Fill Time
+
+Fill Time is read as Singapore time (UTC+8) and turned into the US trading date (Owen, 2026-10-25).
+
+Format: a date part, whitespace, then a time part; anything after the time (a zone label such as `SGT` or `ET`) is ignored.
+- Date part, at the start of the cell: `YYYY-MM-DD`, `YYYY/MM/DD`, or `MMM D, YYYY` with an English three-letter month (`Mar 5, 2024`). It must pass `isIsoDate`.
+- Time part: `H:MM` or `HH:MM`, optionally `:SS`, 24-hour; an optional `AM` or `PM` (any case) after it converts a 12-hour time (`12:xx AM` is hour 0, `12:xx PM` is hour 12).
+- No date part, no time part, or an hour above 23: `bad_date`, message `Fill Time must be a date and time like 2024/03/05 21:30:00 or Mar 5, 2024 21:30:00.`
+
+Rule: when the hour is below 9 (a time before 09:00:00), the fill is dated the previous calendar day (`addDays(date, -1)` from `src/shared/dates.ts`); from 09:00:00 on, it keeps its date. Reason: US regular and extended sessions run from about 16:00 to 08:00 Singapore time (16:00 to 08:00 in US summer time, 17:00 to 09:00 in US winter time), so a fill after Singapore midnight belongs to the US trading day that started the evening before. Example: `2024/03/15 03:15:00` is a 14 March US trade.
+
+Boundary cases (tests in Task 37): `2024/03/15 08:59:59` gives `2024-03-14`; `2024/03/15 09:00:00` gives `2024-03-15`. Also `2024-03-01 02:00:00` gives `2024-02-29` (month and leap-day rollover), `Mar 15, 2024 3:15 AM` gives `2024-03-14`, `Mar 15, 2024 9:00 PM` gives `2024-03-15`.
+
+ponytail: a fixed 09:00 cutoff in Singapore time, with the zone label ignored. Ceilings: an export written in another zone (US Eastern, or Malaysia, which is also UTC+8 and so fine) is dated wrongly for fills before 09:00; a fill in moomoo's overnight session (about 08:00 to 16:00 Singapore time) keeps its Singapore date, which is the US trading day it settles on but may differ from how moomoo books it. Upgrade path once a real file shows the zone: read the zone label and convert to US Eastern before taking the date. On the Task 37 list of checks.
+
+#### 17.1.6 Funding rule
+
+The export has no deposits, withdrawals, dividends, currency conversions or opening positions. The engine rejects negative cash (`src/engine/valuation.ts` lines 115 to 119), so a trade-only file cannot run as it is.
+
+Rule (chosen): the importer keeps a running USD cash balance over the sorted fills, starting at 0: a BUY subtracts `amount + fees`, a SELL adds `amount - fees` (the same arithmetic as `cashDeltas` in `valuation.ts`). At the end of each date, if the balance is below 0, it emits `{date},DEPOSIT,,,,USD,{-balance},0` and sets the balance to 0. The row's `lines` entry is the line of that date's last fill. So each day's net USD shortfall is booked as a same-day USD deposit, and sale proceeds stay as cash and pay for later buys.
+
+Why this holds: the engine checks cash at the end of the day with the same arithmetic, so the reduced file can never fail `negative_cash`. The engine also credits dividends on their ex-dates (spec 10.6, no DIVIDEND rows here) and these only add cash, so they cannot cause a shortfall the importer missed; they stay in the portfolio as cash.
+
+A USD DEPOSIT is converted at the day's valuation rate, as for excluded holdings (spec 16.2), so TWR, XIRR, decomposition and the benchmark need no change.
+
+Alternatives considered:
+- (a) Reject the file and ask for a canonical CSV with the deposits. Exact, but a moomoo user has no file with deposits (statements are PDF), so moomoo stays unusable.
+- (b) Book each shortfall as an SGD DEPOSIT plus an FX row at the ECB rate of the day. Invents a conversion that may not have happened (the money may have arrived in USD), and puts zero conversion cost on it, so the decomposition would claim a cost that was never measured. It also needs the FX series inside the importer, which runs before prices are fetched.
+- (c) Chosen: a USD DEPOSIT for each day's shortfall. No invented conversion; the user is told in a notice.
+
+What the report then claims, and the user is told: money arrived on the day it was spent, never earlier; money never left (a withdrawal of sale proceeds is not in the file, so that cash stays in the value until the end date, which keeps the final value too high by the withdrawn amount and puts the XIRR flow at the end instead of the withdrawal date).
+
+#### 17.1.7 Rejections and notices
+
+Any rejection stops the file, as for IBKR. Row-level checks run on fills only, in this order, first failure per row:
+
+| check | code | message |
+|---|---|---|
+| required column missing (file level) | `bad_header` | `This moomoo file is missing these columns: {list}.` |
+| fill row before any order row, or Side not Buy or Sell | `bad_type` | `Side must be Buy or Sell.` |
+| Fill Time has no accepted date and time | `bad_date` | `Fill Time must be a date and time like 2024/03/05 21:30:00 or Mar 5, 2024 21:30:00.` |
+| Fill Qty, Fill Price, Fill Amount or a fee is not a number | `bad_number` | `{column} must be a number.` |
+| Markets is `US` but Currency is not `USD` (on the order row) | `trade_currency` | `Only US trades in USD can be measured; this order is in {currency}.` |
+| fills differ from Filled@Avg Price (on the order row) | `fill_mismatch` (new) | `Fills add up to {sum} shares, but the order shows {qty} filled.` |
+| no filled US order in the whole file (file level) | `empty_file` | `The file has no filled orders on the US market.` |
+
+Orders with no fill, and filled orders on other markets, are set aside before these checks (17.1.4 items 2 and 4), so they never reject the file.
+
+Notices (shown above the result like the IBKR notices):
+- Always, when any funding row was emitted: `This moomoo file lists trades only. USD {total} was counted as paid in on {n} days, each time the trades needed more USD than the file's own cash. Withdrawals and currency conversions are not in the file, so money from sales stays in the portfolio as cash.` (`{total}` with two decimals and digit grouping, like `2,820.49`; `1 day` when n is 1.)
+- When orders were skipped: `{n} orders with nothing filled were skipped.` (`1 order with nothing filled was skipped.` when n is 1.)
+- When filled orders on other markets were left out: `{n} orders on {markets} markets were left out; this report covers US trades only.` `{n}` counts orders, not fill rows. `{markets}` is the distinct `Markets` values, sorted, joined as `SG`, `HK and SG`, `HK, MY and SG`. One order: `1 order on ... was left out`; one market: `on SG market` (example: `12 orders on HK and SG markets were left out; this report covers US trades only.`).
+
+New `RejectionCode` members: `fill_mismatch`, `moomoo_files` (17.1.8).
+
+#### 17.1.8 Wiring
+
+- `src/shared/csv.ts`: `parseCsv(text, { usdFlows = false } = {})`. With `usdFlows`, a DEPOSIT or WITHDRAW in USD passes the `flow_currency` check. Only `combineFiles` sets it, and only for moomoo output. A plain CSV with a USD DEPOSIT is still rejected with `flow_currency`.
+- `src/app/combine.ts`, per file: `detectFormat` once; `ibkr` goes through `importIbkr` as now; `moomoo` through `importMoomoo`, then `parseCsv(out.csv, { usdFlows: true })`, with the same `lines` mapping and notices as IBKR. Period: `importMoomoo().period`, which equals the first and last row dates, as for a canonical file; `stated` is true only for IBKR, so no gap notices.
+- `combineFiles`, before converting: more than one moomoo file in the set gives one rejection, code `moomoo_files`, `line: null`, message `Use one moomoo file that covers all your trades. Cash is worked out from each file's own trades, so moomoo files cannot be combined.` Reason: each file's funding starts from zero cash, so a second file would be funded again for money the first file left in cash, and money in would be counted twice.
+- Explanation deposits (Owen, 2026-10-25; amends spec 16.2 change 3):
+  - `src/engine/types.ts`: `ComputeInput` gains `originalLedger?: LedgerRow[]`, the ledger before exclusion. Absent means `ledger`.
+  - `src/engine/compute.ts`: exported pure function `explanationDeposits(ledger: LedgerRow[], series: ValuationPoint[], original: LedgerRow[] = ledger): { date, amount }[]`. (a) Every DEPOSIT row of `original`, in either currency; USD rows converted at the `fxRate` of the series point on the row's date. (b) For each OPENING date in `ledger`, the opening value as today: that point's `netFlowSgd` less all of that day's DEPOSIT and WITHDRAW rows of `ledger` (the reduced rows, synthetic ones included, USD at the point's `fxRate`). `compute` calls `explanationDeposits(input.ledger, series, input.originalLedger ?? input.ledger)`. Exclusion only rewrites BUY, SELL and DIVIDEND rows and drops OPENING positions, so every DEPOSIT row of `original` is also in the reduced ledger and its date is in the series.
+  - Where the original ledger comes from: `runUpload` (`src/app/upload.ts`) already holds `combined.rows` before `excludeTickers(combined.rows, excluded)` runs (line 68 today). It sets `originalLedger: combined.rows` on `computeInput`. The Analyse explanation is `result.explanation` from this `compute` call, so this is the Analyse call site; the stored `input` carries the field to the adjusted-close panel and the benchmark, which ignore it.
+  - Home (`src/app/Home.tsx` line 33) builds its own deposits from `s.ledger` DEPOSIT rows to pass `'their'` to `explainGap`. It switches to `explanationDeposits(s.ledger, s.series)`, so the rule lives in one place; the sample is all SGD with no exclusion and no OPENING rows, so its sentence is unchanged. The `ponytail:` comment there is removed with the line it describes.
+  - `loadSample` (`src/app/data.ts`) and `methodModels.ts` call `compute` without exclusion and need no change.
+  - Reason: a moomoo file's deposits are all USD, so with SGD-only counting the deposit total is 0 and the sentence falls through to the generic rule 7 or 10 by way of a 0/0 division. Reading DEPOSIT rows from the original ledger keeps excluded sales and dividends out: in a partial report they are flows of the measured portfolio, not money the investor put in.
+- `src/app/BrokerPicker.tsx`: `Broker = 'ibkr' | 'canonical' | 'moomoo'`. The `moomoo` tile becomes a real option, `moomoo order history`, with the note `From the desktop app: Trade History, History tab` in `.tile-note`. Tile order stays Interactive Brokers, Plain CSV, Tiger Brokers (coming soon), moomoo.
+- `src/app/App.tsx`: `FORMAT_NAME.moomoo = 'a moomoo order history'`, so the mismatch line reads `This looks like a moomoo order history file, not an Interactive Brokers activity statement file.`
+- `src/app/saved.ts`: `loadLedger` accepts broker `moomoo`.
+- No Methodology change: the notice on the result carries the funding rule.
+
+#### 17.1.9 Synthetic fixture and expected output
+
+`src/importers/fixtures/moomoo-sample.csv`, written by hand with the 36-column header of 17.1.1 (exact line 1), then these lines (2 to 10). Times are Singapore time (17.1.5). Fees: AAPL and VOO buys pay Commission 0.99 and Platform Fees 1.00; the sale also pays Trading Activity Fee 0.01 and SEC Fee 0.03. Lines 6 and 9 are fills after Singapore midnight, so they take the previous date. Line 10 is a filled HK order, left out with the market notice.
+```
+Buy,AAPL,Apple Inc,150.00,10,"1,500.00",Filled,10@150.00,"Mar 5, 2024 22:30:00",Limit,Day,No,Regular,,Open,US,USD,Desktop,10,150.00,"1,500.00","Mar 5, 2024 22:30:01",US,USD,,,0.99,1.00,0,0,0,0,0,0,0,"1,501.99"
+Buy,TSLA,Tesla Inc,180.00,5,900.00,Cancelled,0@0.00,"Mar 5, 2024 23:00:00",Limit,Day,No,Regular,,Open,US,USD,Desktop,,,,,,,,,,,,,,,,,,
+Buy,VOO,Vanguard S&P 500 ETF,401.00,5,"2,005.00",Partially Filled,3@400.17,"Mar 6, 2024 22:45:00",Limit,GTC,No,Regular,,Open,US,USD,Desktop,2,400.00,800.00,"Mar 6, 2024 22:45:02",US,USD,,,0.99,1.00,0,0,0,0,0,0,0,"1,202.49"
+,,,,,,,,,,,,,,,,,,1,400.50,400.50,"Mar 6, 2024 22:47:10",US,USD,,,,,,,,,,,,
+Sell,AAPL,Apple Inc,160.00,4,640.00,Filled,4@160.00,"Mar 9, 2024 03:00:00",Limit,Day,No,Regular,,Close,US,USD,Desktop,4,160.00,640.00,"Mar 9, 2024 03:00:03",US,USD,,,0.99,1.00,0,0,0,0,0.01,0,0.03,637.97
+Buy,VOO,Vanguard S&P 500 ETF,410.00,1,410.00,Filled,1@410.00,"Mar 11, 2024 22:00:00",Limit,Day,No,Regular,,Open,US,USD,Desktop,1,410.00,410.00,"Mar 11, 2024 22:00:00",US,USD,,,0.99,1.00,0,0,0,0,0,0,0,411.99
+Buy,D05,DBS Group Holdings,35.00,100,"3,500.00",Failed,0@0.00,"Mar 11, 2024 10:05:00",Limit,Day,No,Regular,,Open,SG,SGD,Desktop,,,,,,,,,,,,,,,,,,
+Buy,AAPL,Apple Inc,170.00,2,340.00,Filled,2@170.00,"Mar 13, 2024 02:05:00",Limit,Day,No,Regular,,Open,US,USD,Desktop,2,170.00,340.00,"Mar 13, 2024 02:05:00",US,USD,,,0.99,1.00,0,0,0,0,0,0,0,341.99
+Buy,00700,Tencent Holdings,300.00,100,"30,000.00",Filled,100@300.00,"Mar 12, 2024 10:00:00",Limit,Day,No,Regular,,Open,HK,HKD,Desktop,100,300.00,"30,000.00","Mar 12, 2024 10:00:05",HK,HKD,,,15.00,15.00,0,30.00,0,0,0,0,0,"30,060.00"
+```
+Every line has 36 cells. Expected `importMoomoo(fixture)`:
+```
+date,type,ticker,quantity,price,currency,amount,fees
+2024-03-05,BUY,AAPL,10,150,USD,1500,1.99
+2024-03-05,DEPOSIT,,,,USD,1501.99,0
+2024-03-06,BUY,VOO,2,400,USD,800,1.99
+2024-03-06,BUY,VOO,1,400.5,USD,400.5,0
+2024-03-06,DEPOSIT,,,,USD,1202.49,0
+2024-03-08,SELL,AAPL,4,160,USD,640,2.03
+2024-03-11,BUY,VOO,1,410,USD,410,1.99
+2024-03-12,BUY,AAPL,2,170,USD,340,1.99
+2024-03-12,DEPOSIT,,,,USD,116.01,0
+```
+- `lines`: `[2, 2, 4, 5, 5, 6, 7, 9, 9]`. `period`: `2024-03-05` to `2024-03-12`. `rejected`: none. The SELL (line 6, `Mar 9, 2024 03:00:03`) is dated 2024-03-08 and the last AAPL buy (line 9, `Mar 13, 2024 02:05:00`) 2024-03-12. Line 10 (HK) is not in the output.
+- Cash walk: 03-05 short 1501.99; 03-06 short 1202.49; 03-08 +637.97; 03-11 637.97 - 411.99 = 225.98; 03-12 225.98 - 341.99 = -116.01, short 116.01. Total 2820.49 on 3 days.
+- `notices`: `This moomoo file lists trades only. USD 2,820.49 was counted as paid in on 3 days, each time the trades needed more USD than the file's own cash. Withdrawals and currency conversions are not in the file, so money from sales stays in the portfolio as cash.` `2 orders with nothing filled were skipped.` and `1 order on HK market was left out; this report covers US trades only.`, in that order.
+
+Engine golden on that output (Task 38, through `runUpload`): AAPL bars 2024-03-05 150, 2024-03-08 160, 2024-03-12 170; VOO bars 2024-03-06 400, 2024-03-11 410; all `splitFactor` 1, `divCash` 0; FX one point 2024-03-05 1.35 (carried); `asOf` 2024-03-12. Last point: `netInvestedSgd` 3807.6615 (2820.49 x 1.35), `valueSgd` 4050 ((8 x 170 + 4 x 410) x 1.35), USD cash 0. TWR cumulative **0.0649010829**, XIRR (Y = T = 7) **0.0710198440**. `explanationDeposits`: 2027.6865 on 03-05, 1623.3615 on 03-06, 156.6135 on 03-12. After Task 34, `decomposition.fees` = 9.99 x 1.35 = **13.4865**.
+
+A real export, when Owen supplies one, is copied to `src/importers/fixtures/moomoo-real.csv` (gitignored) and read by a test that skips when it is absent, as for IBKR.
+
+#### 17.1.10 Tiger Brokers: blocked
+
+Not specified. No public header list exists. What is known: the web Statement page with "Display Detailed Trading Records" gives a CSV with sections Asset Information, Open Position and Trading Details, with fields such as Trading amount, Net amount and Comm/Fee. Blocked on a real anonymised sample file from Owen. The Tiger tile stays "coming soon".
+
+### 17.2 Largest fall and volatility
+
+Both are read from the daily returns `r_d` that TWR already chains (`ValuationPoint.dailyReturn`, spec 6.6, filled by `dailyReturns` in `twr.ts`). Those returns take each day's deposits and withdrawals out, so a withdrawal is not a fall and a deposit does not hide one. Both follow the flow-timing toggle, like TWR.
+
+#### 17.2.1 Definitions (`src/engine/risk.ts`)
+
+Largest fall (maximum drawdown on the TWR line):
+- Index: `I_start = 1` before the first day; `I_d = I_{d-1} x (1 + r_d)` over the series in date order.
+- Peak: the running maximum of `I`, starting at `I_start` dated the first series date. A new peak needs `I_d > peak` (strict).
+- `drawdown_d = I_d / peak_d - 1`. Largest fall = the minimum `drawdown_d`, always `<= 0`. On a tie the earliest day wins (strict `<`). Drawdowns are compared rounded to 20 decimal places, so a tie decided by Decimal noise also keeps the earliest day.
+- `peakDate`: the date of the peak in force at the trough; `troughDate`: the day of the minimum. Both `null` when the largest fall is 0.
+
+Volatility (annualised standard deviation of daily TWR returns):
+- `n` = number of series points (every calendar day, spec 6.2). Mean `m = sum(r_d) / n`. Sample variance `s^2 = sum((r_d - m)^2) / (n - 1)`. Volatility `= sqrt(s^2) x sqrt(365)` with `DAYS_PER_YEAR` from `constants.ts`, in Decimal (`D.sqrt`).
+- Day count: the series has every calendar day, and days with no price or rate change have `r_d = 0`. Scaling the calendar-day deviation by `sqrt(365)` gives about the same figure as the usual trading-day deviation times `sqrt(252)`, because the variance is spread over 365 days instead of 252. This keeps one day count across the engine.
+- Shown only when `n >= MIN_VOLATILITY_DAYS = 90` (new constant in `constants.ts`, same threshold as the explanation's year rule). ponytail: a fixed 90-day floor, because a yearly figure from a few days says little; make it a per-page choice only if users ask.
+
+Interface:
+```ts
+export interface Risk { maxDrawdown: Decimal; peakDate: IsoDate | null; troughDate: IsoDate | null; volatility: Decimal | null }
+export function maxDrawdown(series: ValuationPoint[]): Omit<Risk, 'volatility'>;
+export function volatility(series: ValuationPoint[]): Decimal; // needs n >= 2
+```
+`compute` attaches `risk: { ...maxDrawdown(series), volatility: series.length >= MIN_VOLATILITY_DAYS ? volatility(series) : null }` as a new optional field on the `ok: true` branch. `Risk` lives in `types.ts`.
+
+#### 17.2.2 Golden G (new, `src/engine/fixtures/golden-g.ts` or inline in `risk.test.ts`)
+
+VOO bars: 2021-06-01 100; 06-02 120; 06-03 120; 06-04 90; 06-07 108. `splitFactor` 1, `divCash` 0. FX 1.30 on the same five dates. endDate 2021-06-07.
+```
+2021-06-01,DEPOSIT,,,,SGD,1300,0
+2021-06-01,FX,USD,1000,,SGD,1300,0
+2021-06-01,BUY,VOO,10,100,USD,1000,0
+2021-06-03,SELL,VOO,5,120,USD,600,0
+2021-06-03,FX,SGD,780,,USD,600,0
+2021-06-03,WITHDRAW,,,,SGD,780,0
+```
+| date | V (SGD) | F | r (start and end timing) | I |
+|---|---|---|---|---|
+| 06-01 | 1300 | 1300 | 0 | 1 |
+| 06-02 | 1560 | 0 | 0.2 | 1.2 |
+| 06-03 | 780 | -780 | 0 | 1.2 |
+| 06-04 | 585 | 0 | -0.25 | 0.9 |
+| 06-05, 06-06 | 585 | 0 | 0 | 0.9 |
+| 06-07 | 702 | 0 | 0.2 | 1.08 |
+
+- Value fell from 1560 to 585 (-62.5%), but the largest fall is **-0.25**, peak 2021-06-02, trough 2021-06-04, under both timings: the withdrawal is not a fall.
+- `volatility(series)`: mean 0.15 / 7, sum of squared deviations 0.975 / 7, `s^2 = 0.975 / 42`, volatility `sqrt(0.975 / 42 x 365)` = **2.9108786106**. `compute(...).risk.volatility` is `null` (7 days < 90).
+- TWR cumulative 0.08.
+
+Other expected values:
+- Golden A: largest fall 0, `peakDate` and `troughDate` null (no daily return is negative).
+- Golden D1: largest fall **-0.0259285714** (`-36.3 / 1400`, the first day's conversion cost and fee), peak 2021-06-01 (the start), trough 2021-06-01.
+- Sample (local fixture; skip when absent), start timing: largest fall **-0.2892571569**, peak 2020-02-14, trough 2020-03-23; volatility **0.2496930424**. End timing: **-0.2867883528**, same dates; volatility **0.2501337305**.
+
+#### 17.2.3 Where they show
+
+A new Scene, `Largest fall and volatility`, on Analyse and on Home, not the Returns hero. Reason: the hero is fixed by decision "Home hero shows the numbers only" (title, two rates, sentence, number line, chart) and the hero was already judged crowded when the benchmark line moved out. A Scene is one `SECTIONS` entry and one block per page, with the existing two-column layout.
+
+Rows (`src/app/Risk.tsx`, `RiskRows({ risk })`, `.row` markup):
+- `Largest fall`: `formatPct(maxDrawdown, 1)`, or `None` when it is 0.
+- `Volatility`: `{v x 100, toFixed(1)}% a year`, no sign. Row absent when `volatility` is null.
+
+Prose (`riskText(risk)` in `src/app/format.ts`, the same text on both pages):
+- largest fall below 0: `The largest fall of the TWR line from an earlier high was {abs, 1 dp}%, from {formatDate(peakDate)} to {formatDate(troughDate)}.`
+- largest fall 0: `The TWR line never fell below an earlier high.`
+- then: `Volatility is how far daily returns swing, as a standard deviation scaled to a year.` plus ` It needs at least 90 days of data.` when volatility is null.
+- then: `Both use the daily returns behind TWR, so a withdrawal is not a fall and a deposit does not hide one.`
+
+Sample on Home: `The largest fall of the TWR line from an earlier high was 28.9%, from 14 Feb 2020 to 23 Mar 2020.` and `Volatility 25.0% a year`.
+
+Not on the share card or the PDF (spec 15.2 and 15.3 contents unchanged).
+
+### 17.3 Trading fees and US tax as their own decomposition lines
+
+#### 17.3.1 Engine (`decompose.ts`, `types.ts`)
+
+- New field `fees` on `Decomposition`: per day `d`, `fees_d = sum over BUY and SELL rows dated d of row.fees x f_d`, with `f_d` the series `fxRate` (the rate the other lines use). Positive is a cost, like `conversionCost`. DIVIDEND `fees` (the withholding) is not a trading fee and is not included; FX row fees are already inside `conversionCost` (spec 10.5); OPENING, ADJUST, DEPOSIT and WITHDRAW rows have no fees (excluded tickers fold the fee into their flow, spec 16.2).
+- `local` stops absorbing fees: `local = totalGain - fx + conversionCost + fees - dividends`. It still includes the difference between trade price and close.
+- New identity, exact in Decimal: **`totalGain = local + fx - conversionCost - fees + dividends`**.
+- `withholding` is unchanged (already computed, SGD at the pay date's rate). It is not in the identity, because `dividends` is already after tax.
+
+#### 17.3.2 Golden D, updated (replaces the `local` figures in section 7)
+
+D1: per day, 06-01: conversion -35, FX 0, dividends 0, fees 1.3, local **0** (was -1.3); 06-02: local 140. Totals: local **140**, fx 104.9, conversionCost 35, fees **1.3**, dividends 0, withholding 0, totalGain 208.6. Check: 140 + 104.9 - 35 - 1.3 + 0 = 208.6.
+
+D2: local **140**, fx 104.9, conversionCost 35, fees **1.3**, dividends 4.9, withholding 2.1, totalGain 213.5. Check: 140 + 104.9 - 35 - 1.3 + 4.9 = 213.5.
+
+C1 (DIVIDEND row with fees 0.90): `fees` 0. Sample: `fees` 0 (the sample has no fees), identity holds; local, fx, conversionCost, dividends and totalGain unchanged.
+
+#### 17.3.3 UI
+
+`Decomposition` rows, from a pure `decompositionRows(d): { label: string; value: Decimal; total?: true }[]` in `src/app/Decomposition.tsx`, in this order:
+| label | value | shown |
+|---|---|---|
+| `Price` | `local` | always |
+| `Exchange rate` | `fx` | always |
+| `Dividends before tax` | `dividends + withholding` | when either is non-zero |
+| `US tax withheld` | `-withholding` | when `withholding` is non-zero |
+| `Conversion cost` | `-conversionCost` | always |
+| `Trading fees` | `-fees` | when `fees` is non-zero |
+| `Total gain` | `totalGain` (class `total`) | always |
+
+Every row above `Total gain` adds up to it exactly: `local + fx + (dividends + withholding) - withholding - conversionCost - fees = totalGain`. So tax shows as its own line in the decomposition without breaking the sum. `DividendRows` already shows `US tax withheld` (`src/app/Dividends.tsx`); no change there.
+
+Copy changes:
+- Analyse decomposition intro: `The total gain in SGD, split into what the share prices did, what the exchange rate did, dividends and the US tax on them, and what currency conversions and trading fees cost.`
+- Methodology decomposition paragraph (`src/app/Methodology.tsx` around line 103): replace `The price effect is what is left, so it includes trade fees and the difference between trade prices and closes, and the parts always add up to the total exactly.` with `Trading fees on buys and sells are their own line, at that day's rate, and dividends are shown before tax with the US tax withheld as a line of its own. The price effect is what is left, so it includes the difference between trade prices and closes, and the parts always add up to the total exactly.` The static `DecompositionFigure` is unchanged.
+
+Home scene `Where the gain came from` uses `Decomposition`, so it shows the new rows for the sample: `Dividends before tax` +SGD 3,757.44 and `US tax withheld` -SGD 1,127.23 (sample dividends 2630.2063 plus withholding 1127.2313); no `Trading fees` row (sample fees are 0).
+
+### 17.4 Calendar-year returns
+
+`yearReturns` (from `yearlyTwr`, every calendar year in the series with its `days`) is shown on Analyse as a Scene `Year by year`.
+
+- One row per year, all years, earliest first, `.row` markup in a `.rows` column (no bars).
+- Label `yearLabel(y)` in `src/app/format.ts`: `{year}` when `days` equals the days in that calendar year (`daysBetween('{year}-01-01', '{year+1}-01-01')`, so 365 or 366), else `{year} ({days} days)`. Value `formatPct(twr, 1)`.
+- Each figure is the TWR chained within that year and is never annualised; a partial year's figure covers its days only.
+- Prose: `TWR for each calendar year, chained from the daily returns. A year the file covers only in part shows how many days it covers, and its figure is for those days, not a yearly rate.`
+- Rendered only when there are at least two years (one year would repeat the hero figure or its total).
+- Sample values (start timing): 2019 (364 days) +53.8%, 2020 +47.4%, 2021 +34.2%, 2022 -23.7%, 2023 +36.3%, 2024 +31.9%, 2025 (181 days) -15.0%.
+
+Home: no new scene. `Why they differ` already shows a row per year with TWR, deposits and a bar, built from the same `yearReturns` (`storyFacts` in `src/app/story.ts`). Its 90-day filter and `(to {date})` label stay, because that scene compares years for the explanation sentence.
+
+### 17.5 Analyse section order
+
+`SECTIONS` becomes: `returns` (Returns), `years` (Year by year), `risk` (Largest fall and volatility), `decomposition`, `dividends`, `benchmark`, `raw-prices`. Reason: the year table explains the gap between TWR and XIRR named in the hero, and the largest fall and volatility describe the same TWR line, so both sit right after the numbers; the gain breakdown follows. On Home the risk Scene sits after `Why they differ` and before `Where the gain came from`, the same order.
+
+Seven sections exceed the five at which spec 15.1.5 said a scroll-spy might be needed. Not added; the 360 px section row already scrolls sideways.
+
+### 17.6 Assumptions
+
+1. moomoo: the order history export is the file users have; header names are as reported; the header is the first line; sub-fill rows have empty Side and Symbol; fees are in USD for US trades. Fill Time is Singapore time and a fill before 09:00 belongs to the previous US day (Owen, 17.1.5).
+2. moomoo funding: each day's net USD shortfall becomes a same-day USD DEPOSIT; nothing is ever withdrawn.
+3. moomoo: one moomoo file per report.
+4. moomoo: a filled order outside the US market is left out with a notice; a US order not in USD rejects the file (Owen).
+5. The explanation sentence counts USD DEPOSIT rows at the day's rate, read from the ledger before exclusion (Owen; changes spec 16.2 change 3).
+6. Largest fall and volatility come from the TWR daily returns; volatility uses calendar days, `sqrt(365)`, sample deviation, and needs 90 days.
+7. Trading fees are BUY and SELL fees only; dividend withholding is shown as `US tax withheld` beside `Dividends before tax`.
+8. The year table goes on Analyse only; Home already has one.
+
+### 17.7 Open questions (resolved by Owen, 2026-10-25)
+
+1. Explanation deposits: USD DEPOSIT rows count at the day's rate, read from the ledger before exclusion, so excluded sales and dividends never count as money put in (17.1.8).
+2. moomoo funding: a same-day USD DEPOSIT for each day's net USD shortfall, with the notice (17.1.6).
+3. moomoo non-US fills: left out with a notice naming the count and markets; a US order not in USD is still rejected (17.1.4, 17.1.7).
+4. Volatility: hidden below 90 days (17.2.1).
+5. Fill Time: Singapore time; a fill before 09:00 is dated the previous calendar day (17.1.5). Still to verify against a real export (Task 37).
+
+No open questions remain for this round. The moomoo rules stay unverified until a real export is checked.
+
+### 17.8 Risks
+
+- The moomoo importer has never seen a real file. Column names, Side values, the date format, the sub-fill layout and fee placement are all guesses from third-party reports; any of them can be wrong. Task 37 lists the checks.
+- If the export is not in Singapore time, fills before 09:00 are dated one day early: a Monday fill becomes a Sunday and fails `not_trading_day`, and other days are off by one.
+- Leaving out non-US orders means their cash never enters the report. Correct for a portfolio of US trades only, but a sale on SGX that paid for a US buy shows up as a funding deposit instead.
+- If the order row repeats the order's total fill as well as each fill row, trades would double; `fill_mismatch` catches it only when `Filled@Avg Price` is present.
+- A moomoo export that starts after the first trade sells shares it never bought: the engine rejects it with `oversell`. The user must export from the account's first trade.
+- Withdrawn sale proceeds stay in the value to the end date, so value and XIRR are too high for a user who withdrew; TWR is unaffected except for cash drag.
+- Volatility over calendar days differs slightly from a trading-day figure in other tools; the methodology does not state it yet (17.2.1 states it here).
