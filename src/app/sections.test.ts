@@ -4,6 +4,8 @@ import { SECTIONS } from './sections';
 // Spec 15.1.5: the Analyse sections and their order live in one array. Later tasks add entries.
 const SPEC = [
   { id: 'returns', title: 'Returns' },
+  { id: 'years', title: 'Year by year' },
+  { id: 'risk', title: 'Largest fall and volatility' },
   { id: 'decomposition', title: 'Where the gain came from' },
   { id: 'dividends', title: 'Dividends' },
   { id: 'benchmark', title: 'Against a single fund' },
@@ -17,4 +19,9 @@ test('Returns is the first section', () => {
 test('every section is one of the spec sections, with its spec title, in spec order', () => {
   const present = new Set(SECTIONS.map((s) => s.id));
   expect(SECTIONS).toEqual(SPEC.filter((s) => present.has(s.id)));
+});
+
+// Spec 17.5: all seven sections exist.
+test('Analyse has all seven spec sections', () => {
+  expect(SECTIONS).toEqual(SPEC);
 });

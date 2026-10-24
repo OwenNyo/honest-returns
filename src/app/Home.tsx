@@ -4,9 +4,10 @@ import type { SampleState } from './App';
 import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
-import { formatDate, formatPct, formatSgd } from './format';
+import { formatDate, formatPct, formatSgd, riskText } from './format';
 import { Hero } from './Hero';
 import { RawPricesPanel } from './RawPricesPanel';
+import { RiskRows } from './Risk';
 import { Scene } from './Scene';
 import { Link } from './router';
 import { Skeleton } from './Skeleton';
@@ -89,6 +90,12 @@ export function Home({ sample }: { sample: SampleState }) {
       }>
         <p>Money arrived at the same pace every month, but returns came unevenly from year to year.</p>
       </Scene>
+
+      {s.risk && (
+        <Scene title="Largest fall and volatility" rows={<RiskRows risk={s.risk} />}>
+          <p>{riskText(s.risk)}</p>
+        </Scene>
+      )}
 
       <Scene title="Where the gain came from" rows={s.decomposition && <Decomposition d={s.decomposition} />}>
         <p>

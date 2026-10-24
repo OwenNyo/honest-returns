@@ -1,5 +1,7 @@
 import type Decimal from 'decimal.js';
-import type { IsoDate } from '../engine/types';
+import { MIN_VOLATILITY_DAYS } from '../engine/constants';
+import type { IsoDate, Risk, YearReturn } from '../engine/types';
+import { daysBetween } from '../shared/dates';
 import type { Excluded } from './upload';
 
 const group = (s: string) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -32,3 +34,16 @@ export const excludesLine = ({ tickers, share }: Excluded) =>
 // Spec 16.6: the result title names one or two tickers; three or more become a count, as the notice lists them.
 export const excludingClause = ({ tickers, share }: Excluded) =>
   `excluding ${tickers.length > 2 ? `${tickers.length} holdings` : listTickers(tickers)}, ${formatShare(share)} of what was bought`;
+
+// Spec 17.4: a full calendar year shows the year alone; a partial year shows the days it covers.
+export const yearLabel = ({ year, days }: YearReturn) =>
+  days === daysBetween(`${year}-01-01`, `${year + 1}-01-01`) ? `${year}` : `${year} (${days} days)`;
+
+// Spec 17.2.3: the same prose on Home and Analyse.
+export function riskText(r: Risk): string {
+  const fall = r.maxDrawdown.isZero()
+    ? 'The TWR line never fell below an earlier high.'
+    : `The largest fall of the TWR line from an earlier high was ${r.maxDrawdown.abs().times(100).toFixed(1)}%, from ${formatDate(r.peakDate!)} to ${formatDate(r.troughDate!)}.`;
+  const vol = 'Volatility is how far daily returns swing, as a standard deviation scaled to a year.' + (r.volatility ? '' : ` It needs at least ${MIN_VOLATILITY_DAYS} days of data.`);
+  return `${fall} ${vol} Both use the daily returns behind TWR, so a withdrawal is not a fall and a deposit does not hide one.`;
+}

@@ -8,11 +8,12 @@ import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { FileList } from './FileList';
-import { excludingClause, formatDate, formatSgd, listTickers } from './format';
+import { excludingClause, formatDate, formatPct, formatSgd, listTickers, riskText, yearLabel } from './format';
 import { Hero } from './Hero';
 import { PrintButton } from './PrintButton';
 import { RawPricesPanel } from './RawPricesPanel';
 import { Rejections } from './Rejections';
+import { RiskRows } from './Risk';
 import { Scene } from './Scene';
 import { SectionList } from './SectionList';
 import { ShareButtons } from './ShareButtons';
@@ -154,6 +155,29 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
               <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} excluded={shown.excluded} />
             </ShareButtons>
           </Hero>
+        ),
+        // Spec 17.4: one year would repeat the hero figure.
+        years: (shown.result.yearReturns?.length ?? 0) >= 2 && (
+          <Scene
+            id="years"
+            title={title('years')}
+            rows={shown.result.yearReturns!.map((y) => (
+              <p key={y.year} className="row">
+                <span>{yearLabel(y)}</span>
+                <span className="num">{formatPct(y.twr, 1)}</span>
+              </p>
+            ))}
+          >
+            <p>
+              TWR for each calendar year, chained from the daily returns. A year the file covers only in part shows how
+              many days it covers, and its figure is for those days, not a yearly rate.
+            </p>
+          </Scene>
+        ),
+        risk: shown.result.risk && (
+          <Scene id="risk" title={title('risk')} rows={<RiskRows risk={shown.result.risk} />}>
+            <p>{riskText(shown.result.risk)}</p>
+          </Scene>
         ),
         decomposition: shown.result.decomposition && (
           <Scene id="decomposition" title={title('decomposition')} rows={<Decomposition d={shown.result.decomposition} />}>
