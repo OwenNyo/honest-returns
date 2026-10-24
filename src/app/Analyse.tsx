@@ -4,6 +4,7 @@ import type { FileState } from './App';
 import type { InputFile } from './combine';
 import { Benchmark, useBenchmark } from './BenchmarkSelect';
 import { BrokerPicker, type Broker } from './BrokerPicker';
+import { ConvertedDownloads, LINES_NOTE, NOTICES_NOTE } from './ConvertedDownloads';
 import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
@@ -82,6 +83,7 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
             {n}
           </p>
         ))}
+        <ConvertedDownloads files={file.out.converted} note={notices.length ? NOTICES_NOTE : null} />
         <TimingToggle value={file.timing} onChange={onTiming} />
       </>
     );
@@ -109,6 +111,9 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
         {file.kind === 'mismatch' && <p role="alert">{file.message}</p>}
         {file.kind === 'empty' && <EmptyState />}
         {file.kind === 'rejected' && <Rejections rejected={file.rejected} onContinue={onExclude} />}
+        {file.kind === 'rejected' && file.converted && (
+          <ConvertedDownloads files={file.converted} note={file.rejected.some((r) => r.line !== null) ? LINES_NOTE : null} />
+        )}
         {actions}
       </div>
     );

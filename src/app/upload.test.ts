@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { D } from '../engine/decimal';
 import MOOMOO from '../importers/fixtures/moomoo-sample.csv?raw';
+import { importMoomoo } from '../importers/moomoo';
 import { combineFiles } from './combine';
 import { runUpload } from './upload';
 
@@ -83,6 +84,7 @@ test('a row dated after asOf is rejected with after_as_of naming asOf', async ()
   expect(out).toEqual({
     kind: 'rejected',
     rejected: [{ line: 6, code: 'after_as_of', message: 'date is after the latest available prices (2020-08-31).' }],
+    converted: [], // spec 18.1.2: a compute rejection carries the converted list
   });
 });
 
@@ -256,6 +258,7 @@ test('with exclude ZZZ, an engine rejection maps back to its own line', async ()
   expect(out).toEqual({
     kind: 'rejected',
     rejected: [{ line: 8, code: 'oversell', message: 'This sells more AAPL than is held: holding would be -1 at the end of 2024-03-28.' }],
+    converted: [], // spec 18.1.2: a compute rejection carries the converted list
   });
 });
 
@@ -278,24 +281,26 @@ test('excluding the only holding of a file rejects with nothing_left and no tick
 });
 
 // Task 38, spec 17.1.9: the moomoo fixture through runUpload with the spec's stub prices.
+// Task 38 stub prices for the moomoo fixture.
+const moomooBody = {
+  asOf: '2024-03-12',
+  prices: {
+    AAPL: [
+      ['2024-03-05', '150', '1', '0'],
+      ['2024-03-08', '160', '1', '0'],
+      ['2024-03-12', '170', '1', '0'],
+    ],
+    VOO: [
+      ['2024-03-06', '400', '1', '0'],
+      ['2024-03-11', '410', '1', '0'],
+    ],
+  },
+  fx: [['2024-03-05', '1.35']],
+  unavailable: [],
+};
+
 describe('the moomoo fixture computes with funding deposits', () => {
-  const body = {
-    asOf: '2024-03-12',
-    prices: {
-      AAPL: [
-        ['2024-03-05', '150', '1', '0'],
-        ['2024-03-08', '160', '1', '0'],
-        ['2024-03-12', '170', '1', '0'],
-      ],
-      VOO: [
-        ['2024-03-06', '400', '1', '0'],
-        ['2024-03-11', '410', '1', '0'],
-      ],
-    },
-    fx: [['2024-03-05', '1.35']],
-    unavailable: [],
-  };
-  const run = async () => result(await runUpload([{ name: 'moomoo.csv', text: MOOMOO }], stubFetch(body)));
+  const run = async () => result(await runUpload([{ name: 'moomoo.csv', text: MOOMOO }], stubFetch(moomooBody)));
 
   test('net invested at the end is 3807.6615 (2820.49 x 1.35)', async () => {
     expect((await run()).result.series.at(-1)!.netInvestedSgd.toFixed(10)).toBe('3807.6615000000');
@@ -346,5 +351,46 @@ describe('runUpload passes the ledger before exclusion', () => {
     const combined = combineFiles([{ name: '', text: GOLDEN_A }]);
     if ('rejected' in combined) throw new Error('expected rows');
     expect(out.input.originalLedger).toEqual(combined.rows);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 40, spec 18.1.2: which outcomes carry the converted list.
+// ---------------------------------------------------------------------------
+
+describe('runUpload converted list', () => {
+  test('a result carries an empty converted list for a plain file', async () => {
+    expect(result(await runUpload(GOLDEN_A, stubFetch(goldenBody()))).converted).toEqual([]);
+  });
+
+  test('an engine rejection of a plain file carries an empty converted list', async () => {
+    const out = await runUpload(GOLDEN_A, stubFetch(goldenBody('2020-08-31')));
+    if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
+    expect(out.converted).toEqual([]);
+  });
+
+  test('importer, parse and availability rejections carry no converted list', async () => {
+    const noFillPrice = MOOMOO.replace('Fill Price', 'Fill Px'); // header only: the column is missing
+    const outs = [
+      await runUpload([{ name: 'moomoo.csv', text: noFillPrice }], stubFetch(moomooBody)),
+      await runUpload('date,type\n2020-08-28,DEPOSIT', stubFetch(goldenBody())),
+      await runUpload(PARTIAL.join('\n'), stubFetch(partialBody())),
+    ];
+    for (const out of outs) {
+      if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
+      expect(out.converted).toBeUndefined();
+    }
+    expect(outs.map((o) => (o.kind === 'rejected' ? o.rejected[0].code : o.kind))).toEqual(['bad_header', 'bad_header', 'prices_not_loaded']);
+  });
+
+  test('the converted moomoo file uploaded as a plain CSV gives the same result', async () => {
+    const out = result(await runUpload([{ name: 'moomoo-converted.csv', text: importMoomoo(MOOMOO).csv }], stubFetch(moomooBody)));
+    const last = out.result.series.at(-1)!;
+    expect({
+      twr: out.result.twr.value.toFixed(10),
+      value: last.valueSgd.toFixed(10),
+      net: last.netInvestedSgd.toFixed(10),
+      notices: out.notices,
+    }).toEqual({ twr: '0.0649010829', value: '4050.0000000000', net: '3807.6615000000', notices: [] });
   });
 });

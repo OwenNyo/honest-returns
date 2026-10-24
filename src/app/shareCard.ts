@@ -170,10 +170,15 @@ export async function downloadCard(result: Ok, size: CardSize, includeSgd: boole
   canvas.height = h;
   drawCard(canvas.getContext('2d')!, cardData(result, includeSgd, excluded), size, tokens);
   const blob = await new Promise<Blob>((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('canvas.toBlob gave no image'))), 'image/png'));
+  saveBlob(blob, `honest-returns-${size}.png`);
+}
+
+// An object URL, never a data: link (spec 18.1.3). Shared by the share card and the converted file.
+export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `honest-returns-${size}.png`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }

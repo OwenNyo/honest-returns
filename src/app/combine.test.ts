@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { LedgerRow, Rejection } from '../engine/types';
 import MOOMOO from '../importers/fixtures/moomoo-sample.csv?raw';
+import { importMoomoo } from '../importers/moomoo';
 import { combineFiles } from './combine';
 import { runUpload } from './upload';
 
@@ -241,13 +242,22 @@ describe('runUpload reconciles later IBKR statements', () => {
     expect(two.result.series.at(-1)!.valueSgd.toString()).toBe(one.result.series.at(-1)!.valueSgd.toString());
   });
 
+  const differingPosition = () => runUpload([h1, h2With('April 1, 2026 - June 30, 2026', '5', '150', '200')], stubFetch(ibkrBody()));
+
   test('an opening position that differs from the earlier files is rejected with reconcile_position', async () => {
-    const out = await runUpload([h1, h2With('April 1, 2026 - June 30, 2026', '5', '150', '200')], stubFetch(ibkrBody()));
+    const out = await differingPosition();
     if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
     expect(out.rejected[0]).toMatchObject({
       code: 'reconcile_position',
       message: 'h2.csv opens with 5 VOO, but the earlier files end with 3 VOO on 2026-03-31.',
     });
+  });
+
+  // Spec 18.1.2: reconcile_position is not an engine rejection, so no converted CSV.
+  test('reconcile_position carries no converted CSV', async () => {
+    const out = await differingPosition();
+    if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
+    expect(out.converted).toBeUndefined();
   });
 
   test('an opening position within 0.0001 shares is accepted', async () => {
@@ -342,8 +352,8 @@ describe('combineFiles, moomoo files', () => {
 });
 
 describe('runUpload with a moomoo file', () => {
-  test('an engine rejection maps back to the moomoo file line', async () => {
-    // The only fill is a SELL on moomoo line 2, so the engine rejects it with oversell.
+  // The only fill is a SELL on moomoo line 2, so the engine rejects it with oversell.
+  const oversell = () => {
     const cols = MOOMOO_HEADER.split(',');
     const cells: Record<string, string> = {
       Side: 'Sell',
@@ -358,8 +368,79 @@ describe('runUpload with a moomoo file', () => {
     const seen = new Set<string>();
     const line = cols.map((c) => (seen.has(c) ? '' : (seen.add(c), cells[c] ?? ''))).join(',');
     const body = { asOf: '2024-03-08', prices: { AAPL: [['2024-03-08', '160', '1', '0']] }, fx: [['2024-03-08', '1.35']], unavailable: [] };
-    const out = await runUpload([{ name: 'moomoo.csv', text: `${MOOMOO_HEADER}\n${line}\n` }], stubFetch(body));
+    return runUpload([{ name: 'moomoo.csv', text: `${MOOMOO_HEADER}\n${line}\n` }], stubFetch(body));
+  };
+
+  test('an engine rejection maps back to the moomoo file line', async () => {
+    const out = await oversell();
     if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
     expect(out.rejected).toContainEqual(expect.objectContaining({ line: 2, code: 'oversell' }));
+  });
+
+  // Spec 18.1.2: compute rejections carry the converted CSV.
+  test('an engine rejection in a moomoo file carries its converted CSV', async () => {
+    const out = await oversell();
+    if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
+    expect(out.converted?.map((c) => c.name)).toEqual(['moomoo.csv']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 40: the converted file (spec 18.1.2 to 18.1.4).
+// ---------------------------------------------------------------------------
+
+describe('combineFiles, converted CSVs', () => {
+  test("combineFiles offers each statement's converted CSV, earliest first", () => {
+    const { converted } = combined([h2, h1]);
+    expect(converted.map((c) => c.name)).toEqual(['h1.csv', 'h2.csv']);
+    expect(converted[0].csv.startsWith('date,type,ticker,quantity,price,currency,amount,fees\n')).toBe(true);
+    expect(converted[0].csv.split('\n')).toContain('2026-01-01,OPENING,VOO,1,400,USD,400,0');
+  });
+
+  test("a later statement's converted CSV keeps an opening position with no trades", () => {
+    expect(combined([h1, h2]).converted[1].csv.split('\n')).toContain('2026-04-01,OPENING,VOO,3,400,USD,1200,0');
+  });
+
+  test('a plain CSV file has no converted CSV', () => {
+    expect(combined([A, B]).converted).toEqual([]);
+  });
+
+  test('the moomoo converted CSV is the importer output', () => {
+    expect(combined([{ name: 'moomoo.csv', text: MOOMOO }]).converted).toEqual([{ name: 'moomoo.csv', csv: importMoomoo(MOOMOO).csv }]);
+  });
+});
+
+describe('a converted statement uploaded again as a plain CSV', () => {
+  const summary = (out: Awaited<ReturnType<typeof runUpload>>) => {
+    if (out.kind !== 'result') throw new Error('expected a result, got ' + JSON.stringify(out));
+    const last = out.result.series.at(-1)!;
+    return { twr: out.result.twr.value.toFixed(10), value: last.valueSgd.toFixed(10), net: last.netInvestedSgd.toFixed(10), notices: out.notices };
+  };
+  const convertedOf = (out: Awaited<ReturnType<typeof runUpload>>) => {
+    if (out.kind !== 'result') throw new Error('expected a result, got ' + JSON.stringify(out));
+    return out.converted;
+  };
+
+  test('one converted statement uploaded as a plain CSV gives the same result', async () => {
+    const original = await runUpload([h1], stubFetch(ibkrBody()));
+    const again = await runUpload([{ name: 'h1-converted.csv', text: convertedOf(original)[0].csv }], stubFetch(ibkrBody()));
+    for (const s of [summary(original), summary(again)]) {
+      expect([s.twr, s.value, s.net]).toEqual(['0.0794117647', '2202.0000000000', '2040.0000000000']);
+    }
+  });
+
+  test('two converted statements uploaded as plain CSVs give the same result as the statements', async () => {
+    const original = await runUpload([h1, h2], stubFetch(ibkrBody()));
+    const [c1, c2] = convertedOf(original);
+    const again = await runUpload(
+      [
+        { name: 'h1-converted.csv', text: c1.csv },
+        { name: 'h2-converted.csv', text: c2.csv },
+      ],
+      stubFetch(ibkrBody()),
+    );
+    for (const s of [summary(original), summary(again)]) {
+      expect(s).toEqual({ twr: '0.0794117647', value: '2302.0000000000', net: '2140.0000000000', notices: [] });
+    }
   });
 });

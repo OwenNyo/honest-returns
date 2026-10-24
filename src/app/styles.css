@@ -671,6 +671,7 @@ a {
 /* On phones the Analyse buttons stack at one width instead of some wrapping and some not. */
 @media (max-width: 479px) {
   .rejections .actions > .button,
+  .file-status .converted .actions > .button,
   .upload-block .actions > *,
   .upload-block .upload .button {
     width: 100%;
@@ -1191,10 +1192,14 @@ a.tile-note:hover {
   font: inherit;
 }
 
-/* Share card and PDF buttons: secondary to the brass upload button. */
-.share {
+/* Share card, PDF and converted file buttons: secondary to the brass upload button. */
+.share,
+.converted {
   display: grid;
   gap: 0.5rem;
+}
+.converted .button {
+  overflow-wrap: anywhere;
 }
 .button.secondary {
   background: none;

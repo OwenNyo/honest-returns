@@ -4,13 +4,13 @@ import { excludedShare, excludeTickers } from '../engine/exclude';
 import { toFx, toPriceSeries } from '../engine/load-market';
 import type { ComputeInput, ComputeResult, FlowTiming, IsoDate, LedgerRow, Rejection } from '../engine/types';
 import { ledgerTickers } from '../shared/csv';
-import { combineFiles, type InputFile, mapBack, reconcile } from './combine';
+import { combineFiles, type Converted, type InputFile, mapBack, reconcile } from './combine';
 import { fetchPrices, firstDate } from './data';
 
 export type Excluded = { tickers: string[]; share: Decimal }; // spec 16.5: tickers sorted, share of what was bought
 export type UploadOutcome =
-  | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; excluded: Excluded | null; tickers: string[]; ledger: LedgerRow[]; notices: string[]; input: ComputeInput; periods: { name: string; from: IsoDate; to: IsoDate }[] }
-  | { kind: 'rejected'; rejected: Rejection[] }
+  | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; excluded: Excluded | null; tickers: string[]; ledger: LedgerRow[]; notices: string[]; input: ComputeInput; periods: { name: string; from: IsoDate; to: IsoDate }[]; converted: Converted[] }
+  | { kind: 'rejected'; rejected: Rejection[]; converted?: Converted[] } // converted: set on valuation and compute rejections only (spec 18.1.2)
   | { kind: 'empty' };
 
 const MAX_TICKERS = 50; // the /api/prices limit (spec 9.2)
@@ -28,7 +28,7 @@ export async function runUpload(
   const files = typeof input === 'string' ? [{ name: '', text: input }] : input;
   const combined = combineFiles(files);
   if ('rejected' in combined) return { kind: 'rejected', rejected: combined.rejected };
-  const { periods } = combined;
+  const { periods, converted } = combined;
 
   const tickers = ledgerTickers(combined.rows);
   if (tickers.length > MAX_TICKERS) {
@@ -72,12 +72,16 @@ export async function runUpload(
     return { kind: 'rejected', rejected: [{ line: null, code: 'nothing_left', message }] };
   }
   const reconciled = reconcile({ ...combined, rows: reduced, openings }, prices, fx, timing);
-  if ('rejected' in reconciled) return { kind: 'rejected', rejected: reconciled.rejected };
+  if ('rejected' in reconciled) {
+    // Every reconcile rejection but reconcile_position comes from its valueDaily pass, so it is an engine rejection.
+    const engine = reconciled.rejected[0].code !== 'reconcile_position';
+    return { kind: 'rejected', rejected: reconciled.rejected, ...(engine && { converted }) };
+  }
   const { rows, origin } = reconciled;
   const notices = [...combined.notices, ...reconciled.notices];
   const computeInput = { ledger: rows, prices, fx, endDate: body.asOf, flowTiming: timing, originalLedger: combined.rows };
   const result = compute(computeInput);
-  if (!result.ok) return { kind: 'rejected', rejected: result.rejected.map((r) => mapBack(r, origin, files.length > 1)) };
+  if (!result.ok) return { kind: 'rejected', rejected: result.rejected.map((r) => mapBack(r, origin, files.length > 1)), converted };
   const share = excluded.length ? { tickers: excluded, share: excludedShare(combined.rows, excluded, fx) } : null;
-  return { kind: 'result', result, asOf: body.asOf, excluded: share, tickers, ledger: rows, notices, input: computeInput, periods };
+  return { kind: 'result', result, asOf: body.asOf, excluded: share, tickers, ledger: rows, notices, input: computeInput, periods, converted };
 }

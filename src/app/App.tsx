@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FlowTiming, Rejection } from '../engine/types';
 import { detectFormat } from '../importers/detect';
 import { Analyse } from './Analyse';
-import type { InputFile } from './combine';
+import type { Converted, InputFile } from './combine';
 import type { Broker } from './BrokerPicker';
 import { loadSample, type SampleLoaded } from './data';
 import { Footer } from './Footer';
@@ -20,7 +20,7 @@ export type FileState =
   | { kind: 'error'; files: InputFile[] }
   | { kind: 'empty'; files: InputFile[] }
   | { kind: 'mismatch'; files: InputFile[]; message: string }
-  | { kind: 'rejected'; files: InputFile[]; rejected: Rejection[]; timing: FlowTiming; exclude: string[] }
+  | { kind: 'rejected'; files: InputFile[]; rejected: Rejection[]; timing: FlowTiming; exclude: string[]; converted?: Converted[] }
   | { kind: 'result'; files: InputFile[]; timing: FlowTiming; out: UploadOutcome & { kind: 'result' }; saved?: boolean };
 
 // Decision "broker picker": a file whose detected format differs from the pick is not computed.
@@ -92,7 +92,7 @@ export function App() {
         setFile({ kind: 'result', files, timing, out, saved });
       }
       else if (out.kind === 'empty') setFile({ kind: 'empty', files });
-      else setFile({ kind: 'rejected', files, rejected: out.rejected, timing, exclude });
+      else setFile({ kind: 'rejected', files, rejected: out.rejected, timing, exclude, converted: out.converted });
     } catch (e) {
       console.error(e);
       setFile({ kind: 'error', files });

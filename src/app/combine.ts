@@ -9,6 +9,7 @@ import { parseCsv } from '../shared/csv';
 import { addDays } from '../shared/dates';
 
 export type InputFile = { name: string; text: string };
+export type Converted = { name: string; csv: string }; // csv: the importer's canonical CSV text, header first
 export type Origin = { file: string; line: number };
 export interface Combined {
   rows: LedgerRow[];
@@ -16,6 +17,7 @@ export interface Combined {
   periods: { name: string; from: IsoDate; to: IsoDate }[]; // earliest first
   notices: string[];
   openings: Opening[]; // OPENING rows of every file after the earliest, kept out of `rows` for reconcile()
+  converted: Converted[]; // spec 18.1.2: one entry per IBKR or moomoo file, earliest period first
 }
 export type Opening = { name: string; start: IsoDate; rows: LedgerRow[] };
 
@@ -31,7 +33,7 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
   let name = '';
   const rejected: Rejection[] = [];
   const notices: string[] = [];
-  const parsed: { name: string; rows: LedgerRow[]; from: IsoDate; to: IsoDate; stated: boolean }[] = [];
+  const parsed: { name: string; rows: LedgerRow[]; from: IsoDate; to: IsoDate; stated: boolean; csv: string | null }[] = [];
   const formats = files.map((f) => detectFormat(f.text));
   // Spec 17.1.8: funding starts from zero cash in each moomoo file, so a second file would count money in twice.
   if (formats.filter((x) => x === 'moomoo').length > 1) {
@@ -62,7 +64,7 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
     // Step 2: an IBKR statement states its period; a moomoo or canonical file covers its first to last row date.
     if (ibkr && !ibkr.period) throw new Error(`${f.name}: the IBKR statement has no Period line`);
     const period = ibkr?.period ?? { from: minDate(out.rows), to: maxDate(out.rows) };
-    parsed.push({ name: f.name, rows: out.rows.map(toStatement), ...period, stated: !!ibkr });
+    parsed.push({ name: f.name, rows: out.rows.map(toStatement), ...period, stated: !!ibkr, csv: imported ? imported.csv : null });
   }
   if (rejected.length) return { rejected };
 
@@ -102,7 +104,9 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
       rows.push({ ...r, line: origin.length - 1 });
     }
   }
-  return { rows, origin, periods: parsed.map(({ name, from, to }) => ({ name, from, to })), notices, openings };
+  const periods = parsed.map(({ name, from, to }) => ({ name, from, to }));
+  const converted = parsed.flatMap(({ name, csv }) => (csv === null ? [] : [{ name, csv }]));
+  return { rows, origin, periods, notices, openings, converted };
 }
 
 // Step 7 and UI decision 2: each later statement's opening positions must match the earlier files within
