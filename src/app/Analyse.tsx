@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { Fragment, type ReactNode, useState } from 'react';
 import type { ComputeInput, ComputeResult, FlowTiming, LedgerRow } from '../engine/types';
 import type { FileState } from './App';
 import type { InputFile } from './combine';
@@ -8,15 +8,17 @@ import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { FileList } from './FileList';
-import { formatDate, formatSgd } from './format';
+import { excludingClause, formatDate, formatSgd, listTickers } from './format';
 import { Hero } from './Hero';
 import { PrintButton } from './PrintButton';
 import { RawPricesPanel } from './RawPricesPanel';
 import { Rejections } from './Rejections';
+import { Scene } from './Scene';
 import { SectionList } from './SectionList';
 import { ShareButtons } from './ShareButtons';
 import { SECTIONS } from './sections';
 import { TimingToggle } from './TimingToggle';
+import type { Excluded } from './upload';
 import { DropZone, Upload } from './UploadButton';
 
 export const SAMPLE_TITLE = 'A Singapore investor put SGD 1,000 a month into VOO and AAPL, January 2019 to June 2025.';
@@ -30,11 +32,12 @@ type Props = {
   onFiles: (files: InputFile[]) => void;
   onAddFiles: (files: InputFile[]) => void;
   onTiming: (t: FlowTiming) => void;
+  onExclude: (tickers: string[]) => void;
   onRemove: () => void;
 };
 
 // Decision "Analyse page is for your own file": no sample here. Sections render only when their data exists.
-export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming, onRemove }: Props) {
+export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming, onExclude, onRemove }: Props) {
   const actions = (
     <div className="upload-block">
       <BrokerPicker value={broker} onChange={onBroker} />
@@ -59,12 +62,19 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
   const names = file.kind === 'none' ? [] : file.files.map((f) => f.name);
   const filesLine = names.length > 1 ? `Your files (${names.length}): ${names.join(', ')}` : `Your file: ${names[0]}`;
 
-  let shown: { title: ReactNode; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming } | null = null;
+  let shown: { title: ReactNode; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming; excluded: Excluded | null } | null = null;
   let status: ReactNode = null;
   if (file.kind === 'result') {
-    const { result, ledger, input, notices } = file.out;
+    const { result, ledger, input, notices, excluded } = file.out;
+    const them = excluded && excluded.tickers.length > 1;
     const extra = (
       <>
+        {excluded && (
+          <p className="notice">
+            This report leaves out {listTickers(excluded.tickers)}. Money spent buying {them ? 'them' : 'it'} counts as taken
+            out of the portfolio, and money from {them ? 'their' : 'its'} sales and dividends counts as put in.
+          </p>
+        )}
         {file.files.length > 1 && <FileList periods={file.out.periods} />}
         {notices.map((n) => (
           <p key={n} className="notice">
@@ -79,12 +89,13 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
     const title = (
       <>
         {formatSgd(last.netInvestedSgd)} in, {formatDate(result.series[0].date)} to {formatDate(last.date)}
+        {excluded && `, ${excludingClause(excluded)}`}
         <span className="hero-files">
           {file.saved ? `Saved on this device: ${names.join(', ')}` : filesLine}
         </span>
       </>
     );
-    shown = { title, result, ledger, input, extra, timing: file.timing };
+    shown = { title, result, ledger, input, extra, timing: file.timing, excluded };
   } else if (file.kind !== 'none') {
     status = (
       <div className="file-status">
@@ -96,7 +107,7 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
         {file.kind === 'error' && <p role="alert">{LOAD_ERROR}</p>}
         {file.kind === 'mismatch' && <p role="alert">{file.message}</p>}
         {file.kind === 'empty' && <EmptyState />}
-        {file.kind === 'rejected' && <Rejections rejected={file.rejected} />}
+        {file.kind === 'rejected' && <Rejections rejected={file.rejected} onContinue={onExclude} />}
         {actions}
       </div>
     );
@@ -131,33 +142,35 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
   const [benchTicker, setBenchTicker] = useState<string>('VOO');
   const bench = useBenchmark(benchTicker, shown?.input ?? null);
 
-  // Each section's body, or null when its data is absent. The order comes from SECTIONS.
+  // Each section's body, or null when its data is absent. The order comes from SECTIONS; the sections after Returns
+  // use Home's scene layout: prose and notices left, rows right, a chart across both from 960 px.
+  const title = (id: string) => SECTIONS.find((s) => s.id === id)!.title;
   const bodies: Record<string, ReactNode> = shown
     ? {
         returns: (
           <Hero title={shown.title} titleAs="p" result={shown.result} ledger={shown.ledger}>
             {shown.extra}
-            <ShareButtons result={shown.result}>
-              <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} />
+            <ShareButtons result={shown.result} excluded={shown.excluded}>
+              <PrintButton result={shown.result} ledger={shown.ledger} timing={shown.timing} excluded={shown.excluded} />
             </ShareButtons>
           </Hero>
         ),
         decomposition: shown.result.decomposition && (
-          <div className="section-body">
-            <p className="section-intro">
+          <Scene id="decomposition" title={title('decomposition')} rows={<Decomposition d={shown.result.decomposition} />}>
+            <p>
               The total gain in SGD, split into what the share prices did, what the exchange rate did and what the
               currency conversions cost.
             </p>
-            <Decomposition d={shown.result.decomposition} />
-          </div>
+            {shown.excluded && <p className="notice">These figures leave out {listTickers(shown.excluded.tickers)}.</p>}
+          </Scene>
         ),
         dividends: !!shown.result.dividends?.length && shown.result.decomposition && (
-          <div className="section-body">
-            <p className="section-intro">
+          <Scene id="dividends" title={title('dividends')} rows={<DividendRows d={shown.result.decomposition} />}>
+            <p>
               Dividends after US tax. A dividend row from the broker counts with its own tax; without one, the dividend is
               booked on the ex-date with {WITHHOLDING_PCT} withheld.
             </p>
-            <DividendRows d={shown.result.decomposition} />
+            {shown.excluded && <p className="notice">Dividends from {listTickers(shown.excluded.tickers)} are not counted.</p>}
             {shown.result.warnings
               .filter((w) => w.code === 'dividend_on_ex_date')
               .map((w) => (
@@ -165,13 +178,23 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
                   {w.message}
                 </p>
               ))}
-          </div>
+          </Scene>
         ),
-        benchmark: <Benchmark ticker={benchTicker} onTicker={setBenchTicker} state={bench} series={shown.result.series} ledger={shown.ledger} />,
+        benchmark: (
+          <Benchmark
+            id="benchmark"
+            title={title('benchmark')}
+            ticker={benchTicker}
+            onTicker={setBenchTicker}
+            state={bench}
+            series={shown.result.series}
+            ledger={shown.ledger}
+          />
+        ),
         'raw-prices': (
-          <div className="section-body">
+          <Scene id="raw-prices" title={title('raw-prices')}>
             <RawPricesPanel input={shown.input} twr={shown.result.twr} />
-          </div>
+          </Scene>
         ),
       }
     : { returns: status };
@@ -183,11 +206,12 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
       <div className="analyse-bar">
         <SectionList sections={shown ? present : []} />
       </div>
-      {present.map((s) => (
-        <section key={s.id} id={s.id} className="analyse-section">
-          {file.kind !== 'none' && <h2 className={s.id === 'returns' ? 'visually-hidden' : 'section-title'}>{s.title}</h2>}
-          {bodies[s.id]}
-        </section>
+      <section id="returns" className="analyse-section">
+        {file.kind !== 'none' && <h2 className="visually-hidden">{title('returns')}</h2>}
+        {bodies.returns}
+      </section>
+      {present.slice(1).map((s) => (
+        <Fragment key={s.id}>{bodies[s.id]}</Fragment>
       ))}
       {shown && (
         <section id="another-file" className="analyse-section">

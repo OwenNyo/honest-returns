@@ -99,3 +99,4 @@ Spec section 16, Tasks 31 to 33. When an upload has tickers with no price data, 
 6. Saved ledger remembers the list (`exclude: string[]` in `honest-returns:ledger:v1`, missing reads as empty). A reload shows the same partial report. The timing toggle keeps the exclusion; a new or added file starts without one.
 7. Availability rejections carry `tickers: string[]`; the message parser in `RequestTickers.tsx` is removed.
 8. Review finding "empty reduced ledger", resolved: when the earliest file has no rows left after exclusion, the upload rejects with `nothing_left` instead of crashing in valuation or reconciliation.
+9. The result title names one or two excluded tickers and gives the count for three or more (`excluding 8 holdings, 86% of what was bought`): a long ticker list ran the title to several lines, and the notice under the numbers still lists the names.

@@ -3,6 +3,7 @@ import { BENCHMARKS } from '../engine/benchmark';
 import type { ComputeInput, ComputeResult, LedgerRow, ValuationPoint } from '../engine/types';
 import { loadBenchmark } from './data';
 import { formatPct, formatSgd } from './format';
+import { Scene } from './Scene';
 import { ValueChart } from './ValueChart';
 
 export type BenchmarkState =
@@ -33,7 +34,9 @@ export function useBenchmark(ticker: string, input: ComputeInput | null): Benchm
 }
 
 // Spec 10.14 UI: the select, the benchmark's TWR, XIRR and end value, and a chart of the portfolio with the fund's value line.
-export function Benchmark({ ticker, onTicker, state, series, ledger }: {
+export function Benchmark({ id, title, ticker, onTicker, state, series, ledger }: {
+  id: string;
+  title: string;
   ticker: string;
   onTicker: (t: string) => void;
   state: BenchmarkState;
@@ -69,25 +72,26 @@ export function Benchmark({ ticker, onTicker, state, series, ledger }: {
     );
   }
   return (
-    <>
-      <div className="section-body">
-        <p className="section-intro">
-          The same deposits and withdrawals, on the same days, put into one fund instead, converted at the reference rate
-          with no cost. Its value is the dotted line on the chart below.
-        </p>
-        <label className="select">
-          <span>Fund</span>
-          <select value={ticker} onChange={(e) => onTicker(e.target.value)}>
-            {BENCHMARKS.map((b) => (
-              <option key={b}>{b}</option>
-            ))}
-          </select>
-        </label>
-        <div aria-live="polite">{body}</div>
-      </div>
-      {state.kind === 'done' && state.result.ok && (
+    <Scene
+      id={id}
+      title={title}
+      rows={<div aria-live="polite">{body}</div>}
+      below={state.kind === 'done' && state.result.ok && (
         <ValueChart series={series} ledger={ledger} benchmark={{ ticker, series: state.result.series }} />
       )}
-    </>
+    >
+      <p>
+        The same deposits and withdrawals, on the same days, put into one fund instead, converted at the reference rate
+        with no cost. Its value is the dotted line on the chart below.
+      </p>
+      <label className="select">
+        <span>Fund</span>
+        <select value={ticker} onChange={(e) => onTicker(e.target.value)}>
+          {BENCHMARKS.map((b) => (
+            <option key={b}>{b}</option>
+          ))}
+        </select>
+      </label>
+    </Scene>
   );
 }

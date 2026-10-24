@@ -1,7 +1,8 @@
 import type { ComputeResult } from '../engine/types';
 import { cssVar } from './css';
-import { formatDate, formatPct, formatSgd } from './format';
+import { excludesLine, formatDate, formatPct, formatSgd } from './format';
 import { numberLineScale } from './numberline';
+import type { Excluded } from './upload';
 
 type Ok = ComputeResult & { ok: true };
 export type CardSize = '1200x630' | '1080x1080';
@@ -20,7 +21,7 @@ export interface CardData {
 
 export const SITE = 'honest-returns.owennyowy.workers.dev';
 
-export function cardData(result: Ok, includeSgd: boolean): CardData {
+export function cardData(result: Ok, includeSgd: boolean, excluded?: Excluded | null): CardData {
   const first = result.series[0];
   const last = result.series[result.series.length - 1];
   const unit = (annualised: boolean) => (annualised ? 'a year' : 'in total');
@@ -33,7 +34,7 @@ export function cardData(result: Ok, includeSgd: boolean): CardData {
         ? { text: formatPct(xirr.value, 1), unit: unit(xirr.annualised), pct: Number(xirr.value.times(100).toFixed(2)) }
         : null,
     gap: xirr.kind === 'ok' ? xirr.value.minus(twr.value).abs().times(100).toFixed(1) : null,
-    explanation: result.explanation ?? '',
+    explanation: (result.explanation ?? '') + (excluded ? ` ${excludesLine(excluded)}` : ''),
     sgdLine: includeSgd ? `Value ${formatSgd(last.valueSgd)}, money in ${formatSgd(last.netInvestedSgd)}` : null,
   };
 }
@@ -150,7 +151,7 @@ const FONTS = ['800 96px Archivo', '600 24px Archivo', '400 30px "Source Serif 4
 
 // Draws the card at its exact pixel size and downloads it. Throws FONT_ERROR when a web font is missing,
 // so a card in a fallback font is never produced.
-export async function downloadCard(result: Ok, size: CardSize, includeSgd: boolean): Promise<void> {
+export async function downloadCard(result: Ok, size: CardSize, includeSgd: boolean, excluded: Excluded | null): Promise<void> {
   await Promise.all(FONTS.map((f) => document.fonts.load(f)));
   if (!FONTS.every((f) => document.fonts.check(f))) throw new Error(FONT_ERROR);
   const tokens: Tokens = {
@@ -167,7 +168,7 @@ export async function downloadCard(result: Ok, size: CardSize, includeSgd: boole
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
-  drawCard(canvas.getContext('2d')!, cardData(result, includeSgd), size, tokens);
+  drawCard(canvas.getContext('2d')!, cardData(result, includeSgd, excluded), size, tokens);
   const blob = await new Promise<Blob>((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('canvas.toBlob gave no image'))), 'image/png'));
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

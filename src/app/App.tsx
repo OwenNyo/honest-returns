@@ -19,7 +19,7 @@ export type FileState =
   | { kind: 'error'; files: InputFile[] }
   | { kind: 'empty'; files: InputFile[] }
   | { kind: 'mismatch'; files: InputFile[]; message: string }
-  | { kind: 'rejected'; files: InputFile[]; rejected: Rejection[] }
+  | { kind: 'rejected'; files: InputFile[]; rejected: Rejection[]; timing: FlowTiming; exclude: string[] }
   | { kind: 'result'; files: InputFile[]; timing: FlowTiming; out: UploadOutcome & { kind: 'result' }; saved?: boolean };
 
 // Decision "broker picker": a file whose detected format differs from the pick is not computed.
@@ -33,6 +33,12 @@ function mismatch(files: InputFile[], picked: Broker): string | null {
   }
   return null;
 }
+
+const TITLES: Record<string, string> = {
+  '/': 'Honest Returns',
+  '/analyse': 'Analyse - Honest Returns',
+  '/methodology': 'Methodology - Honest Returns',
+};
 
 // Reading localStorage throws when storage is disabled and does not exist outside a browser: both mean no storage.
 let storage: Storage | null = null;
@@ -61,7 +67,7 @@ export function App() {
     const saved = storage && loadLedger(storage);
     if (!saved) return;
     setBroker(saved.broker);
-    check(saved.files, saved.timing, saved.broker, true);
+    check(saved.files, saved.timing, saved.broker, true, saved.exclude);
   }, []);
 
   // A direct load or a route change with a hash scrolls once the page has rendered.
@@ -69,18 +75,23 @@ export function App() {
     if (location.hash) scrollToHash(location.hash);
   }, [path]);
 
-  async function check(files: InputFile[], timing: FlowTiming = 'start', picked = broker, saved = false) {
+  // Tabs, history and screen readers tell the routes apart by the title.
+  useEffect(() => {
+    document.title = TITLES[path] ?? 'Page not found - Honest Returns';
+  }, [path]);
+
+  async function check(files: InputFile[], timing: FlowTiming = 'start', picked = broker, saved = false, exclude: string[] = []) {
     const wrong = mismatch(files, picked);
     if (wrong) return setFile({ kind: 'mismatch', files, message: wrong });
     setFile({ kind: 'running', files });
     try {
-      const out = await runUpload(files, fetch, timing);
+      const out = await runUpload(files, fetch, timing, exclude);
       if (out.kind === 'result') {
-        if (storage) saveLedger(storage, { files, broker: picked, timing });
+        if (storage) saveLedger(storage, { files, broker: picked, timing, exclude });
         setFile({ kind: 'result', files, timing, out, saved });
       }
       else if (out.kind === 'empty') setFile({ kind: 'empty', files });
-      else setFile({ kind: 'rejected', files, rejected: out.rejected });
+      else setFile({ kind: 'rejected', files, rejected: out.rejected, timing, exclude });
     } catch (e) {
       console.error(e);
       setFile({ kind: 'error', files });
@@ -102,7 +113,9 @@ export function App() {
         onBroker={setBroker}
         onFiles={(files) => check(files)}
         onAddFiles={(files) => file.kind !== 'none' && check([...file.files, ...files])}
-        onTiming={(t) => file.kind === 'result' && check(file.files, t, broker, file.saved)}
+        onTiming={(t) => file.kind === 'result' && check(file.files, t, broker, file.saved, file.out.excluded?.tickers ?? [])}
+        // Keeps an earlier exclusion, so continuing past a second rejection does not bring the first back.
+        onExclude={(tickers) => file.kind === 'rejected' && check(file.files, file.timing, broker, false, [...file.exclude, ...tickers])}
         onRemove={removeSaved}
       />
     );

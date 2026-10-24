@@ -1,7 +1,8 @@
 import type { ComputeResult, FlowTiming } from '../engine/types';
 import { FOOTNOTES } from './footnotes';
-import { formatDate, formatPct } from './format';
+import { excludesLine, formatDate, formatPct } from './format';
 import { NumberLine } from './NumberLineFigure';
+import type { Excluded } from './upload';
 
 type Ok = ComputeResult & { ok: true };
 
@@ -10,7 +11,19 @@ export const localToday = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // Spec 15.3: the one-page statement. Hidden on screen; the only thing printed. Never names the file or a ticker.
-export function PrintStatement({ result, timing, chartImage, today }: { result: Ok; timing: FlowTiming; chartImage: string | null; today: string }) {
+export function PrintStatement({
+  result,
+  timing,
+  excluded,
+  chartImage,
+  today,
+}: {
+  result: Ok;
+  timing: FlowTiming;
+  excluded: Excluded | null;
+  chartImage: string | null;
+  today: string;
+}) {
   const { twr, xirr, series } = result;
   const unit = (annualised: boolean) => (annualised ? 'a year' : 'in total');
   const first = series[0].date;
@@ -21,6 +34,7 @@ export function PrintStatement({ result, timing, chartImage, today }: { result: 
       <p className="ps-sub">
         {formatDate(first)} to {formatDate(last)}
       </p>
+      {excluded && <p>{excludesLine(excluded)}</p>}
       <div className="ps-rates">
         <p className="twr">
           TWR<sup>a</sup> <strong>{formatPct(twr.value, 1)}</strong> {unit(twr.annualised)}

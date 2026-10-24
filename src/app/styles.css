@@ -193,7 +193,8 @@ a {
     background: linear-gradient(to right, transparent, var(--ink));
   }
 }
-.analyse-section {
+.analyse-section,
+.page > .scene {
   scroll-margin-top: 48px;
 }
 @media (min-width: 960px) {
@@ -551,6 +552,7 @@ a {
   border: 0;
   border-radius: 2px;
   font-family: var(--sans);
+  font-size: var(--step-0);
   text-decoration: none;
   cursor: pointer;
   transition: background-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
@@ -596,6 +598,8 @@ a {
   max-width: 70ch;
 }
 .rejections {
+  display: grid;
+  gap: var(--space);
   overflow-wrap: anywhere; /* the bad_header message holds one long unbroken line */
   background: var(--binding);
   border-left: 4px solid var(--rule);
@@ -612,6 +616,26 @@ a {
 }
 .rejections li + li {
   margin-top: 0.25rem;
+}
+/* The request status replaces its button in the actions row, so it keeps the button's height. */
+.rejections .actions > [role='status'] {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+}
+/* On phones the Analyse buttons stack at one width instead of some wrapping and some not. */
+@media (max-width: 479px) {
+  .rejections .actions > .button,
+  .upload-block .actions > *,
+  .upload-block .upload .button {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+  /* "Continue without these holdings" fits one line inside the panel at 360 px. */
+  .rejections .actions > .button {
+    padding-inline: 12px;
+  }
 }
 .timing {
   margin: 0;
@@ -869,6 +893,13 @@ a.tile-note:hover {
   line-height: 1.6;
   max-width: 34em;
 }
+/* Notices and controls among the prose keep the interface face. */
+.scene-prose .notice,
+.scene-prose .select {
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  line-height: 1.45;
+}
 .twr-term {
   color: var(--pencil-blue);
   font-family: var(--sans);
@@ -975,6 +1006,9 @@ a.tile-note:hover {
   .scene > .rows:has(> .actions:only-child) {
     width: auto;
   }
+  .scene-below {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Methodology: Home's scenes, closer together, with an SVG figure in the right column (decisions doc, 2026-10-24). */
@@ -1063,7 +1097,7 @@ a.tile-note:hover {
 }
 
 /* Analyse sections after Returns. */
-.analyse-section + .analyse-section {
+.analyse-section ~ .analyse-section {
   margin-top: calc(var(--space) * 2.5);
   display: grid;
   gap: var(--space);

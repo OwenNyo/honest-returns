@@ -1112,9 +1112,10 @@ These constants are the single source for the PDF, the interim `/methodology` ro
 
 - `src/app/PrintStatement.tsx` renders the contents above inside `<section class="print-statement">`. It is in the DOM whenever a result is shown and hidden on screen (`@media screen { .print-statement { display: none } }`). In `@media print`, everything else in `#root` is hidden and only the statement shows.
 - Colours in print: section 11.3 light tokens, because dark grounds waste ink and browsers drop backgrounds by default. White page, Graphite `#1E2A2F` text, Pencil blue `#2457A6` TWR, Ledger green `#1D6B50` XIRR, Highlighter `#F2DC4E` gap band, gap figure in Graphite. The statement reuses `NumberLine` by redefining the custom properties inside `.print-statement` under `@media print`.
-- Chart image: lightweight-charts draws to canvas in the dark theme. Refactor the chart setup in `ValueChart.tsx` into `buildChart(el: HTMLElement, series, ledger, colors)` (used by `ValueChart` unchanged on screen). The print button builds a second chart in a fixed 1000 x 400 px container placed off screen (`position: fixed; left: -10000px`, not `display: none`, which gives zero size) with the 11.3 light colours, waits one animation frame, calls `chart.takeScreenshot()` (lightweight-charts 5.2 API), stores `canvas.toDataURL('image/png')`, removes the chart.
-- Button `Print or save as PDF` (Returns section actions): build the snapshot, render it into the statement's `<img>`, `await img.decode()`, set `document.title` to `Honest Returns statement {today}` (the default PDF file name), call `window.print()`, restore the title on `afterprint`.
-- Printing with Ctrl+P without the button prints the same statement; the chart image is there only if the button has made a snapshot for the current result. Accepted.
+- Chart image: lightweight-charts draws to canvas in the dark theme. Refactor the chart setup in `ValueChart.tsx` into `buildChart(el: HTMLElement, series, ledger, colors)` (used by `ValueChart` unchanged on screen). On the window `beforeprint` event (fired by the button's `window.print()` and by the browser's own print), `PrintButton` builds a second chart in a fixed 1000 x 400 px container placed off screen (`position: fixed; left: -10000px`, not `display: none`, which gives zero size) with the 11.3 light colours, switches it from `autoSize` to a fixed width and height so it draws at once, calls `chart.takeScreenshot()` (lightweight-charts 5.2 API), stores `canvas.toDataURL('image/png')`, removes the chart.
+- The snapshot is rendered into the statement's `<img>` with `flushSync`, before the browser lays out the page for print. It is not built on every render.
+- Button `Print or save as PDF` (Returns section actions): calls `window.print()`. On `beforeprint` (the button or the browser's own print) `document.title` is set to `Honest Returns statement {today}` (the default PDF file name); `afterprint` restores it.
+- Printing with Ctrl+P without the button prints the same statement, chart included.
 - Fit on one page: the chart image is 170 mm wide x 68 mm tall; footnotes at 8.5 pt; `break-inside: avoid` on the statement. Verified by print preview in Chrome and Safari.
 
 Incidental complexity: the off-screen second chart (needed because the screen chart is dark), and the `buildChart` refactor that it requires.
@@ -1276,7 +1277,7 @@ Rejection screen (`Rejections.tsx`), when every rejection carries `tickers` (onl
 - line: `You can see a report for the rest of the portfolio instead. Buying these holdings then counts as money taken out, and their sales and dividends as money put in.`
 - button, `.button secondary`: `Continue without these holdings`. It excludes the union of the rejections' `tickers`.
 
-Result title (Analyse): `SGD 1,999.61 in, 2 Jan 2024 to 31 Mar 2024, excluding ZZZ, 50% of what was bought`. The SGD figure stays the measured portfolio's net money in.
+Result title (Analyse): `SGD 1,999.61 in, 2 Jan 2024 to 31 Mar 2024, excluding ZZZ, 50% of what was bought`. The SGD figure stays the measured portfolio's net money in. With one or two excluded tickers the clause names them (`excluding YYY and ZZZ`); with three or more it gives the count (`excluding 8 holdings, 86% of what was bought`), because the notice below lists the names.
 
 Notice under the explanation sentence (first item of the hero notices):
 - one ticker: `This report leaves out ZZZ. Money spent buying it counts as taken out of the portfolio, and money from its sales and dividends counts as put in.`
