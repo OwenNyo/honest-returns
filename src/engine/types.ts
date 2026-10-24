@@ -2,7 +2,8 @@ import type Decimal from 'decimal.js';
 import type { Dividend } from './dividends';
 
 export type Ccy = 'SGD' | 'USD';
-export type RowType = 'DEPOSIT' | 'WITHDRAW' | 'FX' | 'BUY' | 'SELL' | 'DIVIDEND' | 'OPENING';
+// ADJUST: a signed cash correction booked when combining statements (UI decision 2); not an external flow.
+export type RowType = 'DEPOSIT' | 'WITHDRAW' | 'FX' | 'BUY' | 'SELL' | 'DIVIDEND' | 'OPENING' | 'ADJUST';
 export type IsoDate = string; // 'YYYY-MM-DD', calendar date, never a timestamp
 
 export interface LedgerRow {
@@ -54,7 +55,7 @@ export type RejectionCode =
   | 'after_as_of' | 'no_market_data' | 'not_trading_day' | 'negative_cash' | 'oversell'
   | 'dividend_unmatched' | 'dividend_duplicate'
   | 'benchmark_unavailable' // spec 10.14: the benchmark is not shown
-  | 'overlapping_files'; // spec 15.4: combining files
+  | 'overlapping_files' | 'reconcile_position' | 'reconcile_cash'; // spec 15.4: combining files
 // file: set only when several files are combined (spec 15.4); the engine never sets it.
 export interface Rejection { line: number | null; code: RejectionCode; message: string; file?: string }
 

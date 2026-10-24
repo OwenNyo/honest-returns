@@ -1,7 +1,11 @@
-import type { IsoDate, LedgerRow, Rejection } from '../engine/types';
+import type Decimal from 'decimal.js';
+import { D } from '../engine/decimal';
+import type { FlowTiming, FxPoint, IsoDate, LedgerRow, PriceSeries, Rejection } from '../engine/types';
+import { valueDaily } from '../engine/valuation';
 import { detectFormat } from '../importers/detect';
-import { importIbkr } from '../importers/ibkr';
+import { importIbkr, statementCurrencies } from '../importers/ibkr';
 import { parseCsv } from '../shared/csv';
+import { addDays } from '../shared/dates';
 
 export type InputFile = { name: string; text: string };
 export type Origin = { file: string; line: number };
@@ -10,7 +14,11 @@ export interface Combined {
   origin: Origin[]; // indexed by the new row line
   periods: { name: string; from: IsoDate; to: IsoDate }[]; // earliest first
   notices: string[];
+  openings: Opening[]; // OPENING rows of every file after the earliest, kept out of `rows` for reconcile()
 }
+export type Opening = { name: string; start: IsoDate; rows: LedgerRow[] };
+
+export const POSITION_TOLERANCE = D('0.0001');
 
 const minDate = (rows: LedgerRow[]) => rows.reduce((m, r) => (r.date < m ? r.date : m), rows[0].date);
 const maxDate = (rows: LedgerRow[]) => rows.reduce((m, r) => (r.date > m ? r.date : m), rows[0].date);
@@ -22,22 +30,31 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
   let name = '';
   const rejected: Rejection[] = [];
   const notices: string[] = [];
-  const parsed: { name: string; rows: LedgerRow[]; from: IsoDate; to: IsoDate }[] = [];
+  const parsed: { name: string; rows: LedgerRow[]; from: IsoDate; to: IsoDate; stated: boolean }[] = [];
+  const isIbkr = (f: InputFile) => detectFormat(f.text) === 'ibkr';
+  // A position held through a statement with no trades takes its currency from the other statements.
+  const known = Object.assign({}, ...files.filter(isIbkr).map((f) => statementCurrencies(f.text)));
 
   for (const f of files) {
     name = f.name;
-    const ibkr = detectFormat(f.text) === 'ibkr' ? importIbkr(f.text) : null;
+    const ibkr = isIbkr(f) ? importIbkr(f.text, known) : null;
     if (ibkr?.rejected.length) {
       rejected.push(...ibkr.rejected.map(tag));
       continue;
     }
     notices.push(...(ibkr?.notices ?? []));
     const out = parseCsv(ibkr ? ibkr.csv : f.text);
+    // Converted rows and their rejections point at the statement line, not the converted CSV line.
+    const toStatement = <T extends { line: number | null }>(x: T): T =>
+      ibkr && x.line !== null ? { ...x, line: ibkr.lines[x.line - 2] } : x;
     if (out.rejected.length) {
-      rejected.push(...out.rejected.map(tag));
+      rejected.push(...out.rejected.map(toStatement).map(tag));
       continue;
     }
-    parsed.push({ name: f.name, rows: out.rows, from: minDate(out.rows), to: maxDate(out.rows) });
+    // Step 2: an IBKR statement states its period; a canonical file covers its first to last row date.
+    if (ibkr && !ibkr.period) throw new Error(`${f.name}: the IBKR statement has no Period line`);
+    const period = ibkr?.period ?? { from: minDate(out.rows), to: maxDate(out.rows) };
+    parsed.push({ name: f.name, rows: out.rows.map(toStatement), ...period, stated: !!ibkr });
   }
   if (rejected.length) return { rejected };
 
@@ -53,15 +70,73 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
     }
   }
 
+  // Step 4: a gap between two statements is allowed, with a notice. Canonical files are never checked.
+  for (let i = 1; i < parsed.length; i++) {
+    const [a, b] = [parsed[i - 1], parsed[i]];
+    if (a.stated && b.stated && addDays(a.to, 1) < b.from) {
+      notices.push(
+        `No statement covers ${addDays(a.to, 1)} to ${addDays(b.from, -1)}, between ${a.name} and ${b.name}. ` +
+          `The opening balances of ${b.name} were checked against the earlier files.`,
+      );
+    }
+  }
+
+  // Steps 5 and 6: one line counter; OPENING rows only from the earliest file.
   const rows: LedgerRow[] = [];
   const origin: Origin[] = [];
-  for (const p of parsed) {
+  const openings: Opening[] = [];
+  for (const [i, p] of parsed.entries()) {
+    const opening = i > 0 ? p.rows.filter((r) => r.type === 'OPENING') : [];
+    if (opening.length) openings.push({ name: p.name, start: p.from, rows: opening });
     for (const r of p.rows) {
+      if (opening.includes(r)) continue;
       origin.push({ file: p.name, line: r.line });
       rows.push({ ...r, line: origin.length - 1 });
     }
   }
-  return { rows, origin, periods: parsed.map(({ name, from, to }) => ({ name, from, to })), notices };
+  return { rows, origin, periods: parsed.map(({ name, from, to }) => ({ name, from, to })), notices, openings };
+}
+
+// Step 7 and UI decision 2: each later statement's opening positions must match the earlier files within
+// POSITION_TOLERANCE; any cash difference is booked as an ADJUST row on the statement's start date.
+// ponytail: one valueDaily pass per later statement over the ledger before it (files x days); one pass that
+// records each boundary date if this gets slow.
+export function reconcile(
+  combined: Pick<Combined, 'rows' | 'origin' | 'openings'>,
+  prices: PriceSeries,
+  fx: FxPoint[],
+  flowTiming: FlowTiming,
+): { rejected: Rejection[] } | { rows: LedgerRow[]; origin: Origin[]; notices: string[] } {
+  const rows = [...combined.rows];
+  const origin = [...combined.origin];
+  const notices: string[] = [];
+  for (const o of combined.openings) {
+    const end = addDays(o.start, -1);
+    const valued = valueDaily({ ledger: rows.filter((r) => r.date < o.start), prices, fx, endDate: end, flowTiming });
+    if (!valued.ok) return { rejected: valued.rejected.map((r) => mapBack(r, origin, true)) };
+    const point = valued.series[valued.series.length - 1];
+
+    const opened: Record<string, Decimal> = {};
+    for (const r of o.rows) if (r.ticker) opened[r.ticker] = (opened[r.ticker] ?? D(0)).plus(r.quantity!);
+    for (const sym of [...new Set([...Object.keys(point.holdings), ...Object.keys(opened)])].sort()) {
+      const ledger = point.holdings[sym] ?? D(0);
+      const opening = opened[sym] ?? D(0);
+      if (ledger.minus(opening).abs().gt(POSITION_TOLERANCE)) {
+        const message = `${o.name} opens with ${opening} ${sym}, but the earlier files end with ${ledger} ${sym} on ${end}.`;
+        return { rejected: [{ line: null, code: 'reconcile_position', message }] };
+      }
+    }
+
+    for (const ccy of ['SGD', 'USD'] as const) {
+      const opening = o.rows.filter((r) => !r.ticker && r.currency === ccy).reduce((s, r) => s.plus(r.amount), D(0));
+      const diff = opening.minus(point.cash[ccy]);
+      if (diff.isZero()) continue;
+      origin.push({ file: o.name, line: o.rows[0].line });
+      rows.push({ line: origin.length - 1, date: o.start, type: 'ADJUST', ticker: null, quantity: null, price: null, currency: ccy, amount: diff, fees: D(0) });
+      notices.push(`Cash adjusted by ${diff.toFixed(2)} ${ccy} on ${o.start} to match the statement (interest, fees or options not modelled).`);
+    }
+  }
+  return { rows, origin, notices };
 }
 
 // Engine rejections carry merged line numbers; map them back to each file's own line.

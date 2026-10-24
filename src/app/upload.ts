@@ -2,7 +2,7 @@ import { compute } from '../engine/compute';
 import { toFx, toPriceSeries } from '../engine/load-market';
 import type { ComputeInput, ComputeResult, FlowTiming, IsoDate, LedgerRow, Rejection } from '../engine/types';
 import { ledgerTickers } from '../shared/csv';
-import { combineFiles, type InputFile, mapBack } from './combine';
+import { combineFiles, type InputFile, mapBack, reconcile } from './combine';
 import { fetchPrices, firstDate } from './data';
 
 export type UploadOutcome =
@@ -24,14 +24,14 @@ export async function runUpload(
   const files = typeof input === 'string' ? [{ name: '', text: input }] : input;
   const combined = combineFiles(files);
   if ('rejected' in combined) return { kind: 'rejected', rejected: combined.rejected };
-  const { rows, origin, periods, notices } = combined;
+  const { periods } = combined;
 
-  const tickers = ledgerTickers(rows);
+  const tickers = ledgerTickers(combined.rows);
   if (tickers.length > MAX_TICKERS) {
     const message = `A file can hold at most ${MAX_TICKERS} different tickers; this one has ${tickers.length}.`;
     return { kind: 'rejected', rejected: [{ line: null, code: 'too_many_tickers', message }] };
   }
-  const body = await fetchPrices(tickers, firstDate(rows), fetchFn);
+  const body = await fetchPrices(tickers, firstDate(combined.rows), fetchFn);
   const unsupported = body.unavailable.filter((u) => u.reason === 'not_on_allowlist').map((u) => u.ticker);
   const notLoaded = body.unavailable.filter((u) => u.reason === 'no_data_yet').map((u) => u.ticker);
   const availability: Rejection[] = [];
@@ -50,7 +50,14 @@ export async function runUpload(
   if (availability.length) return { kind: 'rejected', rejected: availability };
   if (body.asOf === null) return { kind: 'empty' }; // spec 15.1.3: nothing is cached yet
 
-  const computeInput = { ledger: rows, prices: toPriceSeries(body.prices), fx: toFx(body.fx), endDate: body.asOf, flowTiming: timing };
+  const prices = toPriceSeries(body.prices);
+  const fx = toFx(body.fx);
+  // Spec 15.4.2 step 7: reconciliation runs before compute, so its rejection wins over any engine rejection.
+  const reconciled = reconcile(combined, prices, fx, timing);
+  if ('rejected' in reconciled) return { kind: 'rejected', rejected: reconciled.rejected };
+  const { rows, origin } = reconciled;
+  const notices = [...combined.notices, ...reconciled.notices];
+  const computeInput = { ledger: rows, prices, fx, endDate: body.asOf, flowTiming: timing };
   const result = compute(computeInput);
   if (!result.ok) return { kind: 'rejected', rejected: result.rejected.map((r) => mapBack(r, origin, files.length > 1)) };
   return { kind: 'result', result, asOf: body.asOf, tickers, ledger: rows, notices, input: computeInput, periods };

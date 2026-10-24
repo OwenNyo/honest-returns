@@ -9,7 +9,7 @@ export type ValuationResult =
   | { ok: false; rejected: Rejection[] };
 
 // Spec 6.2 step 3: order of rows within one day.
-const PRIORITY: Record<RowType, number> = { OPENING: 0, DEPOSIT: 1, DIVIDEND: 2, FX: 3, BUY: 4, SELL: 4, WITHDRAW: 5 };
+const PRIORITY: Record<RowType, number> = { OPENING: 0, ADJUST: 0, DEPOSIT: 1, DIVIDEND: 2, FX: 3, BUY: 4, SELL: 4, WITHDRAW: 5 };
 
 const reject = (line: number | null, code: Rejection['code'], message: string): ValuationResult => ({
   ok: false,
@@ -32,6 +32,8 @@ function cashDeltas(r: LedgerRow): Partial<Record<Ccy, Decimal>> {
       return { USD: r.amount.minus(r.fees) };
     case 'OPENING':
       return r.ticker ? {} : { [r.currency]: r.amount };
+    case 'ADJUST':
+      return { [r.currency]: r.amount }; // signed; not a flow, so the change shows in the return
   }
 }
 

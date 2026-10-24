@@ -9,6 +9,8 @@ export interface IbkrImport {
   rejected: Rejection[]; // line = line in the statement
   notices: string[];
   sections: Record<string, SectionCounts>;
+  period: { from: string; to: string } | null; // the Statement Period, null when the statement has none
+  lines: number[]; // statement line of each output row: lines[i] for the row on csv line i + 2
 }
 
 type Rec = { section: string; line: number; f: Record<string, string> }; // f: cells keyed by header name
@@ -54,13 +56,33 @@ function records(text: string): Rec[] {
   return out;
 }
 
+// 'January 1, 2026 - October 23, 2026' -> { from: '2026-01-01', to: '2026-10-23' }; a one-day statement has one date.
+function parsePeriod(text: string): { from: string; to: string } | null {
+  const dates = [...text.matchAll(/(\w+) (\d{1,2}), (\d{4})/g)].map(([, m, d, y]) =>
+    MONTHS.includes(m) ? `${y}-${String(MONTHS.indexOf(m) + 1).padStart(2, '0')}-${d.padStart(2, '0')}` : null,
+  );
+  if (dates.length < 1 || dates.length > 2 || dates.includes(null)) return null;
+  return { from: dates[0]!, to: dates.at(-1)! };
+}
+
+// Currency per stock symbol, from Trades and Open Positions.
+function stockCurrencies(recs: Rec[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const r of recs) {
+    if ((r.section === 'Trades' || r.section === 'Open Positions') && r.f['Asset Category'] === 'Stocks') out[r.f.Symbol] = r.f.Currency;
+  }
+  return out;
+}
+export const statementCurrencies = (text: string) => stockCurrencies(records(text));
+
 const num = (s: string): Decimal => D(s.replace(/,/g, ''));
 const plain = (d: Decimal) => d.toFixed();
 
 // Spec "Task 15 addendum": IBKR Activity Statement CSV to canonical CSV text.
-export function importIbkr(text: string): IbkrImport {
+export function importIbkr(text: string, known: Record<string, string> = {}): IbkrImport {
   const recs = records(text);
   const rows: string[] = [];
+  const lines: number[] = [];
   const rejected: Rejection[] = [];
   const sections: Record<string, SectionCounts> = {};
   const count = (r: Rec, k: keyof SectionCounts) => {
@@ -69,6 +91,7 @@ export function importIbkr(text: string): IbkrImport {
   };
   const emit = (r: Rec, ...cells: (string | Decimal | null)[]) => {
     rows.push(cells.map((c) => (c === null ? '' : typeof c === 'string' ? c : plain(c))).join(','));
+    lines.push(r.line);
     count(r, 'converted');
   };
   const reject = (r: Rec, code: RejectionCode, message: string) => {
@@ -78,17 +101,15 @@ export function importIbkr(text: string): IbkrImport {
   const of = (section: string) => recs.filter((r) => r.section === section);
 
   // Opening balances, dated the first day of the statement Period.
-  const period = of('Statement').find((r) => r.f['Field Name'] === 'Period')?.f['Field Value'] ?? '';
-  const start = /^(\w+) (\d{1,2}), (\d{4})/.exec(period);
+  const periodText = of('Statement').find((r) => r.f['Field Name'] === 'Period')?.f['Field Value'] ?? '';
+  const period = parsePeriod(periodText);
   const startDate = () => {
-    if (!start || !MONTHS.includes(start[1])) throw new Error(`IBKR statement Period not understood: "${period}"`);
-    return `${start[3]}-${String(MONTHS.indexOf(start[1]) + 1).padStart(2, '0')}-${start[2].padStart(2, '0')}`;
+    if (!period) throw new Error(`IBKR statement Period not understood: "${periodText}"`);
+    return period.from;
   };
-  // Mark-to-Market has no currency column; take it from the symbol's trades or open positions.
-  const currencyOf: Record<string, string> = {};
-  for (const r of [...of('Trades'), ...of('Open Positions')]) {
-    if (r.f['Asset Category'] === 'Stocks') currencyOf[r.f.Symbol] = r.f.Currency;
-  }
+  // Mark-to-Market has no currency column; take it from the symbol's trades or open positions, or from
+  // other statements in the same set (`known`), for a position held through a statement with no trades.
+  const currencyOf: Record<string, string> = { ...known, ...stockCurrencies(recs) };
   for (const r of of('Mark-to-Market Performance Summary')) {
     if (r.f['Asset Category'] !== 'Stocks' || num(r.f['Prior Quantity']).isZero()) count(r, 'skipped');
     else if (currencyOf[r.f.Symbol] !== 'USD') reject(r, 'trade_currency', 'OPENING must be in USD.');
@@ -146,23 +167,26 @@ export function importIbkr(text: string): IbkrImport {
   const tax: Record<string, Decimal> = {};
   for (const r of of('Withholding Tax')) tax[key(r)] = (tax[key(r)] ?? D(0)).plus(num(r.f.Amount));
   const gross: Record<string, Decimal> = {};
+  const firstLine: Record<string, number> = {};
   for (const r of of('Dividends')) {
     if (r.f.Currency !== 'USD') {
       reject(r, 'trade_currency', 'DIVIDEND must be in USD.');
       continue;
     }
     gross[key(r)] = (gross[key(r)] ?? D(0)).plus(num(r.f.Amount));
+    firstLine[key(r)] ??= r.line;
     count(r, 'converted');
   }
   for (const [k, amount] of Object.entries(gross)) {
     if (!amount.gt(0)) continue; // ponytail: a fully reversed dividend leaves nothing to book
     const [symbol, date] = k.split('|');
     rows.push([date, 'DIVIDEND', symbol, '', '', 'USD', plain(amount), plain((tax[k] ?? D(0)).abs())].join(','));
+    lines.push(firstLine[k]);
   }
   for (const r of of('Withholding Tax')) count(r, key(r) in gross ? 'converted' : 'skipped');
 
   const notices = options
     ? [`Options trades were skipped: ${options} rows. Results are approximate because option premiums also moved your cash.`]
     : [];
-  return { csv: [HEADER, ...rows].join('\n') + '\n', rejected, notices, sections };
+  return { csv: [HEADER, ...rows].join('\n') + '\n', rejected, notices, sections, period, lines };
 }

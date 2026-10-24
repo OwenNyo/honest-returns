@@ -6,13 +6,14 @@ import { isIsoDate } from './dates';
 
 export const HEADER = 'date,type,ticker,quantity,price,currency,amount,fees';
 const MAX_ROWS = 10000;
+// ADJUST is not accepted: only statement reconciliation books it (combine.ts), never a file.
 const TYPES: RowType[] = ['DEPOSIT', 'WITHDRAW', 'FX', 'BUY', 'SELL', 'DIVIDEND', 'OPENING'];
 const NUMBER = /^-?\d+(\.\d+)?$/;
 const TICKER = /^[A-Z0-9.\-]{1,10}$/;
 
 type Field = 'ticker' | 'quantity' | 'price' | 'amount';
-// OPENING is checked with the BUY rules (a position) or the DEPOSIT rules (cash), see ruleType.
-const REQUIRED: Record<Exclude<RowType, 'OPENING'>, Field[]> = {
+// OPENING is checked with the BUY rules (a position) or the DEPOSIT rules (cash).
+const REQUIRED: Record<Exclude<RowType, 'OPENING' | 'ADJUST'>, Field[]> = {
   DEPOSIT: ['amount'],
   WITHDRAW: ['amount'],
   FX: ['ticker', 'quantity', 'amount'],
@@ -20,7 +21,7 @@ const REQUIRED: Record<Exclude<RowType, 'OPENING'>, Field[]> = {
   SELL: ['ticker', 'quantity', 'price', 'amount'],
   DIVIDEND: ['ticker', 'amount'],
 };
-const MUST_BE_EMPTY: Record<Exclude<RowType, 'OPENING'>, Field[]> = {
+const MUST_BE_EMPTY: Record<Exclude<RowType, 'OPENING' | 'ADJUST'>, Field[]> = {
   DEPOSIT: ['ticker', 'quantity', 'price'],
   WITHDRAW: ['ticker', 'quantity', 'price'],
   FX: ['price'],
@@ -68,7 +69,7 @@ function parseRow(text: string, line: number): LedgerRow | { code: RejectionCode
   if (currency !== 'SGD' && currency !== 'USD') return { code: 'bad_currency', message: 'currency must be SGD or USD.' };
 
   // An OPENING row is a position when it names a ticker, otherwise cash (spec Task 15 addendum).
-  const rule = type === 'OPENING' ? (ticker === '' ? 'DEPOSIT' : 'BUY') : type;
+  const rule = (type === 'OPENING' ? (ticker === '' ? 'DEPOSIT' : 'BUY') : type) as keyof typeof REQUIRED;
   const raw: Record<Field | 'fees', string> = { ticker, quantity: quantityS, price: priceS, amount: amountS, fees: feesS };
   for (const col of ['quantity', 'price', 'amount', 'fees'] as const) {
     if (raw[col] !== '' && !NUMBER.test(raw[col])) {
