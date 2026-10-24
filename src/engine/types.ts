@@ -52,7 +52,8 @@ export type RejectionCode =
   | 'bad_ticker' | 'amount_mismatch' | 'fees_on_flow'
   | 'unsupported_tickers' | 'prices_not_loaded' | 'too_many_tickers'
   | 'after_as_of' | 'no_market_data' | 'not_trading_day' | 'negative_cash' | 'oversell'
-  | 'dividend_unmatched' | 'dividend_duplicate';
+  | 'dividend_unmatched' | 'dividend_duplicate'
+  | 'benchmark_unavailable'; // spec 10.14: the benchmark is not shown
 export interface Rejection { line: number | null; code: RejectionCode; message: string }
 
 export interface Warning {

@@ -103,7 +103,13 @@ describe.skipIf(!haveSample)('sample portfolio (needs local fixture)', () => {
       endDate: '2020-09-30',
     });
     if (!res.ok) throw new Error('buy-and-hold should compute: ' + JSON.stringify(res.rejected));
-    const expected = D(4).times(close('2020-09-30')).div(close('2020-08-03')).minus(1);
+    // Spec 10.6: each ex-date after the buy credits holding x divCash x 0.7 to USD cash (FX fixed at 1).
+    // Holding is 1 share before the 2020-08-31 4:1 split and 4 from it.
+    const netDividends = prices.AAPL.filter((b) => b.date > '2020-08-03' && b.date <= '2020-09-30').reduce(
+      (s, b) => s.plus(D(b.date >= '2020-08-31' ? 4 : 1).times(b.divCash).times('0.7')),
+      D(0),
+    );
+    const expected = D(4).times(close('2020-09-30')).plus(netDividends).div(close('2020-08-03')).minus(1);
     expect(res.twr.value.toFixed(10)).toBe(expected.toFixed(10));
   });
 });

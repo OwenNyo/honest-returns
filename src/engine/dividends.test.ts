@@ -154,7 +154,12 @@ describe('DIVIDEND row withholding', () => {
 
 describe('ex-date entitlement', () => {
   test('uses the holding before the day rows: a BUY on the ex-date is not entitled', () => {
-    const i = inputC(['2021-03-26,BUY,VOO,1,362,USD,362,0']);
+    // Extra 400 USD on 03-25 funds the ex-date buy (Golden C leaves only 280 USD).
+    const i = inputC([
+      '2021-03-25,DEPOSIT,,,,SGD,520,0',
+      '2021-03-25,FX,USD,400,,SGD,520,0',
+      '2021-03-26,BUY,VOO,1,362,USD,362,0',
+    ]);
     expect(plainDividends(i)[0]).toMatchObject({ exDate: '2021-03-26', gross: '3' });
   });
 
