@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import type { ComputeInput, ComputeResult, FlowTiming, LedgerRow } from '../engine/types';
 import type { FileState, SampleState } from './App';
+import { Benchmark, useBenchmark } from './BenchmarkSelect';
 import { BrokerPicker, type Broker } from './BrokerPicker';
 import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
@@ -87,6 +88,9 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
       );
   }
 
+  const [benchTicker, setBenchTicker] = useState<string>('VOO');
+  const bench = useBenchmark(benchTicker, shown?.input ?? null);
+
   // Each section's body, or null when its data is absent. The order comes from SECTIONS.
   const bodies: Record<string, ReactNode> = shown
     ? {
@@ -123,6 +127,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
               ))}
           </div>
         ),
+        benchmark: <Benchmark ticker={benchTicker} onTicker={setBenchTicker} state={bench} series={shown.result.series} ledger={shown.ledger} />,
         'raw-prices': (
           <div className="section-body">
             <RawPricesPanel input={shown.input} twr={shown.result.twr} />

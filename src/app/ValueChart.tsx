@@ -18,7 +18,15 @@ const cssVar = (name: string) => getComputedStyle(document.documentElement).getP
 // Display only: the chart library takes numbers; values are rounded to cents first.
 const num = (d: { toFixed(dp: number): string }) => Number(d.toFixed(2));
 
-export function ValueChart({ series, ledger }: { series: ValuationPoint[]; ledger: LedgerRow[] }) {
+export function ValueChart({
+  series,
+  ledger,
+  benchmark,
+}: {
+  series: ValuationPoint[];
+  ledger: LedgerRow[];
+  benchmark?: { ticker: string; series: ValuationPoint[] };
+}) {
   const el = useRef<HTMLDivElement>(null);
   const last = series[series.length - 1];
   const [readout, setReadout] = useState(last);
@@ -83,12 +91,26 @@ export function ValueChart({ series, ledger }: { series: ValuationPoint[]; ledge
     // Inline label under the money-in line, 85% along so it is not clipped at the right edge (an axis label hid the tick under it).
     const labelAt = series[Math.floor(series.length * 0.85)];
     createSeriesMarkers(moneyIn, [{ time: labelAt.date as Time, position: 'belowBar', shape: 'circle', size: 0.5, color: faded, text: 'Money in' }], { autoScale: false });
+    // Spec 10.14: the benchmark's value, dotted, labelled with its ticker.
+    if (benchmark) {
+      const bench = chart.addSeries(LineSeries, {
+        color: `${paper}b3`, // ~70% alpha
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      bench.setData(benchmark.series.map((p) => ({ time: p.date as Time, value: num(p.valueSgd) })));
+      const at = benchmark.series[Math.floor(benchmark.series.length * 0.7)];
+      createSeriesMarkers(bench, [{ time: at.date as Time, position: 'aboveBar', shape: 'circle', size: 0.5, color: paper, text: benchmark.ticker }], { autoScale: false });
+    }
     chart.timeScale().fitContent();
 
     const byDate = new Map(series.map((p) => [p.date, p]));
     chart.subscribeCrosshairMove((param) => setReadout((param.time && byDate.get(param.time as string)) || last));
     return () => chart.remove();
-  }, [series, ledger, last]);
+  }, [series, ledger, last, benchmark]);
 
   const first = series[0];
   return (

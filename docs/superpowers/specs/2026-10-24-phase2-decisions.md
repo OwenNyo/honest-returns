@@ -83,3 +83,7 @@ At 960px and up the scene grid is prose first (max 56ch, which measures about 62
 ## Methodology sections removed (Owen, 2026-10-24)
 
 The Verification, Out of scope and Golden tests sections are removed from the Methodology page, with `src/app/verification.ts`. The page ends with XIRR. Task 13 is dropped.
+
+## Benchmark line in its own section (Owen, 2026-10-24)
+
+The fund's dotted value line moves from the hero chart to a chart in the `Against a single fund` section, next to the portfolio value: the hero chart was crowded, and the comparison belongs where the fund's figures are.

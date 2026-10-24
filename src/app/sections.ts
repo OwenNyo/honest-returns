@@ -3,5 +3,6 @@ export const SECTIONS: { id: string; title: string }[] = [
   { id: 'returns', title: 'Returns' },
   { id: 'decomposition', title: 'Where the gain came from' },
   { id: 'dividends', title: 'Dividends' },
+  { id: 'benchmark', title: 'Against a single fund' },
   { id: 'raw-prices', title: 'Why raw prices' },
 ];

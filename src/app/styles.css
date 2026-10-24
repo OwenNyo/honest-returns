@@ -846,3 +846,19 @@ a {
 .row.total > span:first-child {
   color: var(--paper);
 }
+
+.select {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+.select select {
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--binding);
+  color: var(--paper);
+  border: 2px solid var(--rule);
+  border-radius: 2px;
+  font: inherit;
+}

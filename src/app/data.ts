@@ -1,3 +1,4 @@
+import { benchmark } from '../engine/benchmark';
 import { compute } from '../engine/compute';
 import { toFx, toPriceSeries } from '../engine/load-market';
 import type { ComputeInput, ComputeResult, IsoDate, LedgerRow } from '../engine/types';
@@ -5,6 +6,7 @@ import sampleCsv from '../sample/sample-ledger.csv?raw';
 import { SAMPLE_END } from '../sample';
 import { PricesResponse } from '../shared/api';
 import { ledgerTickers, parseCsv } from '../shared/csv';
+import { addDays } from '../shared/dates';
 
 export async function fetchPrices(tickers: string[], from: IsoDate, fetchFn: typeof fetch = fetch): Promise<PricesResponse> {
   const res = await fetchFn(`/api/prices?tickers=${tickers.join(',')}&from=${from}`);
@@ -29,4 +31,17 @@ export async function loadSample(fetchFn: typeof fetch = fetch): Promise<SampleL
   if (body.unavailable.length) throw new Error('sample tickers unavailable: ' + JSON.stringify(body.unavailable));
   const input = { ledger: rows, prices: toPriceSeries(body.prices), fx: toFx(body.fx), endDate: SAMPLE_END };
   return { ...compute(input), asOf: body.asOf, ledger: rows, input };
+}
+
+// Spec 10.14: the benchmark's prices come from a few days before the first ledger date, because under
+// start-of-day timing the first deposit buys at the close of the last trading day before it.
+const BENCHMARK_LEAD_DAYS = 7;
+export async function loadBenchmark(
+  ticker: string,
+  input: ComputeInput,
+  fetchFn: typeof fetch = fetch,
+): Promise<{ kind: 'unavailable' } | { kind: 'done'; result: ComputeResult }> {
+  const body = await fetchPrices([ticker], addDays(firstDate(input.ledger), -BENCHMARK_LEAD_DAYS), fetchFn);
+  if (body.asOf === null || body.unavailable.length) return { kind: 'unavailable' };
+  return { kind: 'done', result: benchmark({ ...input, prices: { ...input.prices, ...toPriceSeries(body.prices) } }, ticker) };
 }
