@@ -1,4 +1,4 @@
-/* Spec 11.3 tokens. */
+/* Spec 11b tokens (direction A, ledger ink). */
 @font-face {
   font-family: 'Archivo';
   src: url('./fonts/archivo-latin.woff2') format('woff2');
@@ -16,12 +16,16 @@
 }
 
 :root {
-  --paper: #eef2ec;
-  --graphite: #1e2a2f;
-  --ruling: #bfcbc2;
-  --pencil-blue: #2457a6;
-  --ledger-green: #1d6b50;
-  --highlighter: #f2dc4e;
+  --ink: #16131d;
+  --binding: #221d2b;
+  --paper: #eee6d3;
+  --faded: #aca291;
+  --brass: #d9ae52;
+  --pencil-blue: #8fb4ff;
+  --ledger-green: #7cc9a0;
+  --rule: #332c3d;
+
+  color-scheme: dark;
 
   --sans: 'Archivo', system-ui, sans-serif;
   --serif: 'Source Serif 4', Georgia, serif;
@@ -33,7 +37,9 @@
   --step-2: 1.5625rem; /* 25 */
   --step-3: 1.9375rem; /* 31 */
   --step-4: 2.4375rem; /* 39 */
-  --hero: min(3.5rem, 15.5vw); /* 56 at 360 px, shrinks below */
+  --step-5: 3.0625rem; /* 49 */
+  --display: var(--step-3);
+  --hero: min(3.5rem, 12.5vw); /* 45 at 360 px: a 7-character rate such as +121.5% fits half the column */
 
   --margin: 16px;
   --space: 1.5rem;
@@ -41,7 +47,8 @@
 
 @media (min-width: 960px) {
   :root {
-    --hero: 72px;
+    --display: var(--step-5);
+    --hero: min(88px, 9.5vw - 19px); /* a 7-character rate (3.45em) fits its cell: 72 px at 960, 88 px from 1184 */
     --margin: 32px;
     --space: 2rem;
   }
@@ -58,8 +65,8 @@
 
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--graphite);
+  background: var(--ink);
+  color: var(--paper);
   font-family: var(--sans);
   font-size: var(--step-0);
   line-height: 1.45;
@@ -78,8 +85,8 @@ a {
 }
 
 :focus-visible {
-  outline: 2px solid var(--pencil-blue);
-  outline-offset: 2px;
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
 }
 
 .page {
@@ -95,7 +102,7 @@ a {
   min-height: 64px;
 }
 .site-header .brand {
-  font-weight: 600;
+  font-weight: 800;
   font-size: var(--step-1);
 }
 .site-header a {
@@ -104,13 +111,14 @@ a {
   min-height: 44px;
 }
 
-/* Hero: one column on phones, 5/7 columns from 960 px. */
+/* Hero: figures on the ink ground, then the chart on the one raised surface (spec 11b.4). */
 .hero {
   display: grid;
-  gap: var(--space);
+  gap: calc(var(--space) * 1.5);
   padding-top: var(--space);
 }
 .hero-main,
+.hero-aside,
 .hero-side {
   display: grid;
   gap: var(--space);
@@ -118,16 +126,41 @@ a {
   min-width: 0;
 }
 @media (min-width: 960px) {
-  .hero {
-    grid-template-columns: 5fr 7fr;
-    column-gap: 3rem;
+  .hero-main {
+    grid-template-columns: 2fr 1fr;
+    grid-template-areas: 'title title' 'rates aside' 'line line';
+    column-gap: 4rem;
+    row-gap: calc(var(--space) * 1.25);
+  }
+  .hero-main > .hero-title {
+    grid-area: title;
+  }
+  .hero-main > .rates {
+    grid-area: rates;
+  }
+  .hero-main > .hero-aside {
+    grid-area: aside;
+    padding-top: 1.75rem; /* level with the top of the numbers, under the TWR and XIRR labels */
+  }
+  .hero-main > .numberline {
+    grid-area: line;
   }
 }
 
+/* Full-bleed panel without leaving the content column; clip-path stops horizontal scroll. */
+.hero-side {
+  background: var(--binding);
+  box-shadow: 0 0 0 100vmax var(--binding);
+  clip-path: inset(0 -100vmax -100vmax); /* also fills to the bottom of the page */
+  padding: calc(var(--space) * 1.25) 0;
+  margin-top: var(--space);
+}
+
 .hero-title {
-  font-size: var(--step-2);
-  font-weight: 600;
-  line-height: 1.25;
+  font-size: var(--display);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
   max-width: 30ch;
 }
 
@@ -136,17 +169,23 @@ a {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
+@media (min-width: 960px) {
+  .rates {
+    gap: 2.5rem;
+  }
+}
 .rate-label {
   font-size: var(--step-0);
-  font-weight: 600;
+  font-weight: 700;
 }
 .rate-value {
   display: block;
   font-size: var(--hero);
-  font-weight: 700;
+  font-weight: 800;
   font-stretch: 75%;
-  line-height: 1;
+  line-height: 0.95;
   letter-spacing: -0.02em;
+  margin: 0.25rem 0;
 }
 .rate-unit {
   font-size: var(--step-0);
@@ -185,7 +224,7 @@ a {
 .numberline {
   position: relative;
   font-size: var(--step--1);
-  font-weight: 600;
+  font-weight: 700;
 }
 .nl-row {
   position: relative;
@@ -208,7 +247,16 @@ a {
 }
 .nl-axis {
   position: relative;
-  height: 28px;
+  height: 36px;
+  margin: 4px 0;
+}
+@media (min-width: 960px) {
+  .nl-axis {
+    height: 48px;
+  }
+  .numberline {
+    font-size: var(--step-0);
+  }
 }
 .nl-axis::before {
   content: '';
@@ -216,29 +264,30 @@ a {
   left: 0;
   right: 0;
   top: 50%;
-  height: 1px;
-  background: var(--ruling);
+  height: 2px;
+  margin-top: -1px;
+  background: var(--rule);
 }
 .nl-tick {
   position: absolute;
-  top: calc(50% - 4px);
-  width: 1px;
-  height: 9px;
-  background: var(--ruling);
+  top: calc(50% - 6px);
+  width: 2px;
+  height: 12px;
+  background: var(--rule);
 }
 .nl-band {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  background: var(--highlighter);
-  animation: nl-grow 400ms ease-out both;
+  top: 6px;
+  bottom: 6px;
+  background: var(--brass);
+  animation: nl-grow 700ms cubic-bezier(0.2, 0.7, 0.2, 1) 150ms both;
 }
 .nl-mark {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  margin-left: -1px;
+  width: 3px;
+  margin-left: -1.5px;
 }
 .nl-mark.twr {
   background: var(--pencil-blue);
@@ -248,17 +297,30 @@ a {
 }
 .nl-ticks {
   font-weight: 400;
+  color: var(--faded);
 }
 .nl-gap {
-  font-size: var(--step-0);
+  height: auto;
+  min-height: 1.3em;
+  margin-top: 0.25rem;
+  font-size: var(--step-2);
+  font-weight: 800;
+  color: var(--brass);
+  animation: nl-fade 250ms ease-out 850ms both;
 }
 @keyframes nl-grow {
   from {
     transform: scaleX(0);
   }
 }
+@keyframes nl-fade {
+  from {
+    opacity: 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .nl-band {
+  .nl-band,
+  .nl-gap {
     animation: none;
   }
 }
@@ -271,19 +333,21 @@ a {
 }
 
 .chart-readout {
-  font-size: var(--step--1);
+  font-size: var(--step-0);
+  font-weight: 600;
   min-height: 1.45em;
 }
 .chart {
-  height: 280px;
+  height: 300px;
 }
 @media (min-width: 960px) {
   .chart {
-    height: 360px;
+    height: 440px;
   }
 }
 .as-of {
   font-size: var(--step--1);
+  color: var(--faded);
 }
 
 .status {
@@ -311,15 +375,15 @@ a {
   align-items: center;
   min-height: 48px;
   padding: 0 20px;
-  background: var(--graphite);
-  color: var(--paper);
-  font-weight: 600;
+  background: var(--brass);
+  color: var(--ink);
+  font-weight: 700;
   border-radius: 2px;
   cursor: pointer;
 }
 .upload input:focus-visible + .button {
-  outline: 2px solid var(--pencil-blue);
-  outline-offset: 2px;
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
 }
 .link-button {
   min-height: 44px;
@@ -339,6 +403,9 @@ a {
 }
 .rejections {
   overflow-wrap: anywhere; /* the bad_header message holds one long unbroken line */
+  background: var(--binding);
+  border-left: 4px solid var(--brass);
+  padding: 1rem 1.25rem;
 }
 .rejections ul {
   margin: 0 0 0.25rem;
@@ -376,5 +443,5 @@ a {
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: var(--graphite);
+  accent-color: var(--brass);
 }

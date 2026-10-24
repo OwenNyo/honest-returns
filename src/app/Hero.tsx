@@ -41,8 +41,10 @@ export function Hero({ title, result, ledger, children }: { title: ReactNode; re
           </p>
         </div>
         {xirr.kind === 'ok' && <NumberLine twr={twr.value} xirr={xirr.value} />}
-        {result.explanation && <p className="explanation">{result.explanation}</p>}
-        {children}
+        <div className="hero-aside">
+          {result.explanation && <p className="explanation">{result.explanation}</p>}
+          {children}
+        </div>
       </div>
       <div className="hero-side">
         <ValueChart series={series} ledger={ledger} />

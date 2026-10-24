@@ -1,4 +1,5 @@
 import {
+  AreaSeries,
   createChart,
   createSeriesMarkers,
   LineSeries,
@@ -23,12 +24,15 @@ export function ValueChart({ series, ledger }: { series: ValuationPoint[]; ledge
   const [readout, setReadout] = useState(last);
 
   useEffect(() => {
-    const graphite = cssVar('--graphite');
-    const ruling = cssVar('--ruling');
+    const paper = cssVar('--paper');
+    const faded = cssVar('--faded');
+    const rule = cssVar('--rule');
+    // A light textColor also makes the library pick its light TradingView logo, which must stay visible.
     const chart = createChart(el.current!, {
       autoSize: true,
-      layout: { background: { color: 'transparent' }, textColor: graphite, fontFamily: cssVar('--sans'), fontSize: 13 },
-      grid: { vertLines: { color: ruling }, horzLines: { color: ruling } },
+      layout: { background: { color: 'transparent' }, textColor: faded, fontFamily: cssVar('--sans'), fontSize: 13 },
+      grid: { vertLines: { visible: false }, horzLines: { color: rule } },
+      crosshair: { vertLine: { color: faded, labelBackgroundColor: rule }, horzLine: { color: faded, labelBackgroundColor: rule } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0 } }, // no bottom margin: a value axis never dips below 0
       timeScale: {
         borderVisible: false,
@@ -40,10 +44,17 @@ export function ValueChart({ series, ledger }: { series: ValuationPoint[]; ledge
       handleScroll: false,
       handleScale: false,
     });
-    const value = chart.addSeries(LineSeries, { color: graphite, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+    const value = chart.addSeries(AreaSeries, {
+      lineColor: paper,
+      lineWidth: 2,
+      topColor: `${paper}38`, // ~22% alpha
+      bottomColor: `${paper}00`,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
     const moneyIn = chart.addSeries(LineSeries, {
-      color: graphite,
-      lineWidth: 1,
+      color: faded,
+      lineWidth: 2,
       lineStyle: LineStyle.Dashed,
       lineType: LineType.WithSteps,
       priceLineVisible: false,
@@ -56,7 +67,7 @@ export function ValueChart({ series, ledger }: { series: ValuationPoint[]; ledge
     // FX conversions as small dots: series markers have an 11 px minimum, too heavy for monthly conversions.
     const fxDates = new Set(ledger.filter((r) => r.type === 'FX').map((r) => r.date));
     const fxDots = chart.addSeries(LineSeries, {
-      color: graphite,
+      color: faded,
       lineVisible: false,
       pointMarkersVisible: true,
       pointMarkersRadius: 2,
@@ -67,8 +78,11 @@ export function ValueChart({ series, ledger }: { series: ValuationPoint[]; ledge
     fxDots.setData(series.filter((p) => fxDates.has(p.date)).map((p) => ({ time: p.date as Time, value: num(p.valueSgd) })));
     const markers: SeriesMarker<Time>[] = series
       .filter((p) => p.netFlowSgd.lt(0))
-      .map((p) => ({ time: p.date as Time, position: 'aboveBar', shape: 'arrowDown', color: graphite }));
+      .map((p) => ({ time: p.date as Time, position: 'aboveBar', shape: 'arrowDown', color: cssVar('--brass') }));
     createSeriesMarkers(value, markers);
+    // Inline label under the money-in line, 85% along so it is not clipped at the right edge (an axis label hid the tick under it).
+    const labelAt = series[Math.floor(series.length * 0.85)];
+    createSeriesMarkers(moneyIn, [{ time: labelAt.date as Time, position: 'belowBar', shape: 'circle', size: 0.5, color: faded, text: 'Money in' }], { autoScale: false });
     chart.timeScale().fitContent();
 
     const byDate = new Map(series.map((p) => [p.date, p]));

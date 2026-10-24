@@ -569,6 +569,8 @@ Subject: performance reporting for Singapore retail investors with US holdings. 
 
 ### 11.3 Final tokens
 
+Superseded by 11b for colour, scale and layout. Kept as the record of the first light theme.
+
 | Token | Hex | Role |
 |---|---|---|
 | Paper | `#EEF2EC` | page background (columnar-pad green-grey) |
@@ -655,6 +657,88 @@ Number line: tick step is the smallest of 5, 10, 20, 25, 50, 100 percentage poin
 5. Quality floor: works at 360 px, visible focus ring (2 px Pencil blue outline, 2 px offset), tap targets at least 44 px, the chart has an `aria-label` summarising start value, end value and money in.
 
 Copy rules: sentence case, no em dashes, buttons say what happens (`Check your own broker file`, `Remove saved file`, `Request these tickers`), errors say what is wrong and how to fix it, no apologies.
+
+## 11b Design pass (2026-10-24)
+
+Brief from Owen: the light page is too plain. Take the feel of a dark fintech template (dark, confident, high contrast, bold type, layered) without its tropes (3D coins, phones, stock illustrations, gradient blobs, identical card grids). Revision from Owen during the pass: no near-black ground with an acid-green or neon accent, because that pairing is the most common fintech template look. The page must still read as credible performance reporting.
+
+### 11b.1 Research (what to borrow, one line each)
+- Bloomberg Terminal: a warm accent (amber) on a dark ground has read as "serious market data" for 40 years; borrow a warm metal accent for the one thing that matters, not a neon.
+- Robinhood 2024 identity: a neutral base with one purposeful accent, plus an accessible-colour setting; borrow "one accent, used in one place" and never colour as the only signal.
+- Stripe dark sections: dark bands in a tinted navy, not black, with a lighter surface layered on top; borrow a tinted ground and a single raised surface one step lighter.
+- Datawrapper on chart backgrounds (FT pink as the example): a tinted, desaturated chart ground becomes a recognisable identity; borrow a tinted panel for the chart.
+- EU data visualisation guide on dark charts: reverse everything, brighter text, darker grid; borrow a grid only just above the ground.
+- Linear product page: the product's own visuals carry the page, no illustrations; borrow "the number line and the chart are the imagery".
+
+### 11b.2 Three directions
+| | Ground | Raised | Text | Muted | Accent | Source and why it is not a default |
+|---|---|---|---|---|---|---|
+| A. Ledger ink (chosen) | `#16131D` | `#221D2B` | `#EEE6D3` | `#ACA291` | `#D9AE52` brass | A bound account ledger: aubergine-black ink, aged ledger paper, brass corner fittings. Fintech templates use neutral black or navy with a cold neon; a warm purple-black with brass is not one of them. |
+| B. Passbook | `#0F2621` | `#173630` | `#F2EAD8` | `#A9B8AC` | `#F08F6E` copper-coral | A bank passbook cover in bottle green with cream pages and a copper stamp. Distinct, but XIRR loses its green on a green ground and would need a new hue. |
+| C. Night terminal | `#121A21` | `#1B2731` | `#E6ECEF` | `#93A3AE` | `#F2A541` amber | A terminal readout at night (the Bloomberg lineage). Credible, but slate plus amber is the second most common "serious finance" look after black plus green. |
+
+Series hues for A and C: TWR `#8FB4FF` (blue pencil, lifted for dark), XIRR `#7CC9A0` (ledger green, lifted for dark). B would keep TWR `#A9C7FF` and need a non-green XIRR.
+
+Why A: it is the most specific to the subject (a statement of account, written in a ledger), it keeps TWR blue and XIRR green from 11.3 so the meaning carries over, and its accent is the least like the fintech defaults Owen rejected.
+
+### 11b.3 Tokens (direction A)
+| Token | Hex | Role |
+|---|---|---|
+| Ink | `#16131D` | page ground |
+| Binding | `#221D2B` | the one raised surface: the chart panel |
+| Ledger paper | `#EEE6D3` | text, value line and its area fill |
+| Faded | `#ACA291` | secondary text, axis labels, money-in line |
+| Brass | `#D9AE52` | the gap band, the gap figure, the primary button, focus rings |
+| Pencil blue | `#8FB4FF` | TWR: number, mark, label |
+| Ledger green | `#7CC9A0` | XIRR: number, mark, label |
+| Rule | `#332C3D` | chart grid and number-line axis only (decorative, not text) |
+
+Contrast (computed, WCAG 2): Ledger paper on Ink 14.8:1, on Binding 13.2:1. Faded 7.3:1 and 6.5:1 (lightened from `#A79D8C` so the chart library draws black, 8.4:1, not white, 2.6:1, on the "Money in" axis label). Brass 8.8:1 and 7.9:1. Pencil blue 8.9:1 and 7.9:1. Ledger green 9.4:1 and 8.4:1. Ink on Brass (button text) 8.8:1. All pass AA, most pass AAA.
+
+Type: keep self-hosted Archivo and Source Serif 4. The opening line is set as a display line in Archivo weight 800, width 100, tight leading (1.05) and -0.02em tracking, as one block (no single accented word). Hero numbers Archivo weight 800 at width 75. Explanation stays in Source Serif 4. Scale: 13, 16, 20, 25, 31, 39, 49; opening line 31 at 360 px, 49 at desktop; hero numbers 56 at 360 px, 96 at desktop.
+
+### 11b.4 Desktop composition (>= 960 px, content 1120 px)
+```
++------------------------------------------------------------------------+
+| Honest Returns                                            Methodology  |
+|                                                                        |
+| A Singapore investor put SGD 1,000 a month into VOO                    |  display line, 49 px / 800
+| and AAPL, January 2019 to June 2025.                                   |
+|                                                                        |
+| TWR a                XIRR b                 | XIRR is lower than TWR   |  numbers 96 px; serif aside
+| +20.8%               +14.0%                 | because 85% of your ...  |
+| a year               a year                 | [Check your own broker]  |
+|                                                                        |
+| 0%      5%      10%    XIRR [======brass======] TWR      25%           |  full-width number line, 44 px band
+|                              6.8 points                                |  brass, 25 px bold
++========================================================================+
+|##### Binding panel, full bleed ########################################|
+|# 30 Jun 2025: value SGD 123,550.17, money in SGD 78,000.00            #|
+|# [ chart 440 px: value as area (paper line, fill fading to Binding),  #|
+|#   money in as dashed Faded steps with a small "Money in" label on the line, #|
+|#   FX dots, withdrawal arrows, TradingView logo ]                     #|
+|# Prices as of 30 Jun 2025 c                                          #|
+|# (row reserved for "Where the gain came from", filled by scope 5)    #|
++========================================================================+
+```
+Layered depth comes from two surface steps (Ink, then Binding) and scale contrast, not shadows or borders. The decomposition row is a grid row inside the Binding panel under the chart; the next phase adds its content there. Nothing is rendered for it now.
+
+### 11b.5 360 px stack
+Header; display line (31 px); TWR and XIRR side by side at 56 px; number line full width; explanation (serif); timing toggle and button; then the Binding panel full bleed with readout, chart (300 px) and the as-of line. 16 px gutters, no horizontal scroll.
+
+### 11b.6 Motion
+One moment: on load the brass band grows from the TWR mark to the XIRR mark (700 ms, ease-out, 150 ms delay), then the gap figure fades in (250 ms) as it lands. Nothing else animates on load. Under `prefers-reduced-motion: reduce` both are off and shown in their final state.
+
+### 11b.7 Generic defaults checked, and what changed
+- Near-black with one acid-green accent (default 2): rejected by Owen; changed to aubergine Ink with Brass.
+- Tinted near-black standing in for black (default 5): Ink has a visible purple hue and a name, chosen from the ledger subject, not `#0B0B0B`.
+- Big number, small label, gradient accent hero: the two numbers stay (the product requires them), but the signature is the full-width number line; no gradient anywhere except the chart's area fill, which encodes value.
+- SaaS card grid with one shadow on everything (default 4): no cards and no shadows; one raised surface, used once, for the chart.
+- Fade-and-slide entrance on every section: none; only the gap band moves.
+- ALL-CAPS eyebrows, middle-dot meta strings, arrows on buttons, monospace data labels: none. TWR and XIRR are acronyms, not eyebrows.
+- One accented word in the headline: not used; the whole opening line gets the display treatment.
+- Broadsheet hairlines (default 3): none outside the chart grid and the number-line axis.
+- Gradient blobs, 3D coins, phones, stock illustrations: none; the number line and the chart are the only imagery.
 
 ## 12. Assumptions
 1. The engine runs in the browser; the Worker serves cached data only (section 3).
