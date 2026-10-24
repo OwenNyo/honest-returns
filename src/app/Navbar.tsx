@@ -1,6 +1,5 @@
+import { REPO_URL } from '../engine/constants';
 import { Link } from './router';
-
-export const REPO_URL = 'https://github.com/OwenNyo/honest-returns';
 
 // Spec 15.1.2 and UI decision 5: the brand is the home link; then Analyse, Methodology, GitHub.
 export function Navbar({ path }: { path: string }) {

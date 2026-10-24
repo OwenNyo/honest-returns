@@ -774,3 +774,30 @@ a {
     grid-column: 1 / -1;
   }
 }
+
+/* Methodology (spec 10.4): one reading column. */
+.prose {
+  display: grid;
+  gap: var(--space);
+  padding-top: var(--space);
+  max-width: 40em;
+}
+.method-section {
+  display: grid;
+  gap: 0.75rem;
+  scroll-margin-top: 16px;
+}
+.method-section h2 {
+  font-size: var(--step-2);
+  font-weight: 800;
+}
+.method-section p {
+  font-family: var(--serif);
+  font-size: var(--step-0);
+  line-height: 1.65;
+}
+@media (min-width: 960px) {
+  .method-section p {
+    font-size: var(--step-1);
+  }
+}

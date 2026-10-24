@@ -2,8 +2,9 @@ import type Decimal from 'decimal.js';
 import { daysBetween } from '../shared/dates';
 import { D } from './decimal';
 import type { IsoDate, LedgerRow, PriceSeries, Rejection } from './types';
+import { US_WITHHOLDING } from './constants';
 
-export const US_WITHHOLDING = D('0.30'); // Singapore residents on US dividends (spec 10.6)
+export { US_WITHHOLDING };
 const MATCH_DAYS = 90;
 
 export interface Entitlement { ticker: string; exDate: IsoDate; gross: Decimal; withheld: Decimal; net: Decimal }

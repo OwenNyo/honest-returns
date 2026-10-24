@@ -1,4 +1,5 @@
 import type Decimal from 'decimal.js';
+import { DAYS_PER_YEAR } from './constants';
 import { D } from './decimal';
 import type { FlowTiming, RateResult, ValuationPoint, Warning } from './types';
 
@@ -31,6 +32,6 @@ export function twr(series: ValuationPoint[]): Decimal {
 }
 
 export function annualise(cumulative: Decimal, days: number): RateResult {
-  if (days <= 365) return { value: cumulative, annualised: false, days };
-  return { value: D.pow(cumulative.plus(1), D(365).div(days)).minus(1), annualised: true, days };
+  if (days <= DAYS_PER_YEAR) return { value: cumulative, annualised: false, days };
+  return { value: D.pow(cumulative.plus(1), D(DAYS_PER_YEAR).div(days)).minus(1), annualised: true, days };
 }

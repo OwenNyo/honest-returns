@@ -1,10 +1,10 @@
 import type Decimal from 'decimal.js';
 import { daysBetween } from '../shared/dates';
+import { DAYS_PER_YEAR, XIRR_GUESS, XIRR_RANGE } from './constants';
 import { D } from './decimal';
 import type { IsoDate, XirrResult } from './types';
 
-const LO = -0.99;
-const HI = 10;
+const [LO, HI]: number[] = [...XIRR_RANGE];
 const TOL = 1e-12;
 
 // Spec 6.7. Float64 by design (spec 6.8): a root-finder on a rate is not a money path.
@@ -14,7 +14,7 @@ export function xirr(flows: { date: IsoDate; amount: Decimal }[], endDate: IsoDa
   const start = [...byDate.keys()].sort()[0];
   const T = daysBetween(start, endDate);
   if (T === 0) return { kind: 'undefined', reason: 'period_too_short' };
-  const Y = T > 365 ? 365 : T;
+  const Y = T > DAYS_PER_YEAR ? DAYS_PER_YEAR : T;
   const cf = [...byDate].filter(([, a]) => a !== 0).map(([d, a]) => ({ a, t: daysBetween(start, d) / Y }));
   if (!cf.some((c) => c.a > 0) || !cf.some((c) => c.a < 0)) return { kind: 'undefined', reason: 'no_sign_change' };
 
@@ -32,11 +32,11 @@ export function xirr(flows: { date: IsoDate; amount: Decimal }[], endDate: IsoDa
     if (prevSign !== 0 && sign !== prevSign) changes++;
     prevSign = sign;
   }
-  return { kind: 'ok', value: D(root.toString()), annualised: T > 365, multipleRoots: changes > 1 };
+  return { kind: 'ok', value: D(root.toString()), annualised: T > DAYS_PER_YEAR, multipleRoots: changes > 1 };
 }
 
 function newton(f: (r: number) => number, df: (r: number) => number): number | null {
-  let r = 0.1;
+  let r = XIRR_GUESS;
   for (let i = 0; i < 50; i++) {
     const d = df(r);
     if (d === 0) return null;
