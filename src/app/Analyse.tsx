@@ -56,8 +56,8 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
       </div>
     </div>
   );
-  const fileTitle =
-    file.kind === 'none' ? '' : file.files.length > 1 ? `Your files (${file.files.length})` : `Your file (${file.files[0].name})`;
+  const names = file.kind === 'none' ? [] : file.files.map((f) => f.name);
+  const filesLine = names.length > 1 ? `Your files (${names.length}): ${names.join(', ')}` : `Your file: ${names[0]}`;
 
   let shown: { title: ReactNode; result: Ok; ledger: LedgerRow[]; input: ComputeInput; extra: ReactNode; timing: FlowTiming } | null = null;
   let status: ReactNode = null;
@@ -76,16 +76,11 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
     );
     // Same money-in figure as storyFacts: the last point's net invested SGD.
     const last = result.series[result.series.length - 1];
-    const names = file.files.map((f) => f.name);
     const title = (
       <>
         {formatSgd(last.netInvestedSgd)} in, {formatDate(result.series[0].date)} to {formatDate(last.date)}
         <span className="hero-files">
-          {file.saved
-            ? `Saved on this device: ${names.join(', ')}`
-            : names.length > 1
-              ? `Your files (${names.length}): ${names.join(', ')}`
-              : `Your file: ${names[0]}`}
+          {file.saved ? `Saved on this device: ${names.join(', ')}` : filesLine}
         </span>
       </>
     );
@@ -93,7 +88,10 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
   } else if (file.kind !== 'none') {
     status = (
       <div className="file-status">
-        <p className="hero-title">{fileTitle}</p>
+        <p className="hero-title">
+          {names.length > 1 ? 'Your files' : 'Your file'}
+          <span className="hero-files">{filesLine}</span>
+        </p>
         {file.kind === 'running' && <p>Calculating.</p>}
         {file.kind === 'error' && <p role="alert">{LOAD_ERROR}</p>}
         {file.kind === 'mismatch' && <p role="alert">{file.message}</p>}
