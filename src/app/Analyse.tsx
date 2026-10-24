@@ -30,10 +30,11 @@ type Props = {
   onFiles: (files: InputFile[]) => void;
   onAddFiles: (files: InputFile[]) => void;
   onTiming: (t: FlowTiming) => void;
+  onRemove: () => void;
 };
 
 // Decision "Analyse page is for your own file": no sample here. Sections render only when their data exists.
-export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming }: Props) {
+export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming, onRemove }: Props) {
   const actions = (
     <div className="upload-block">
       <BrokerPicker value={broker} onChange={onBroker} />
@@ -45,6 +46,13 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
           secondary={file.kind === 'rejected' && file.rejected.some((r) => r.code === 'unsupported_tickers')}
         />
         {file.kind !== 'none' && <Upload onFiles={onAddFiles} label="Add another file" secondary />}
+        {/* A failed upload can be cleared too; the saved set, if any, goes with it so nothing comes back on reload.
+            Not while running: check() would still save and show the result when the prices arrive. */}
+        {file.kind !== 'none' && file.kind !== 'running' && (
+          <button type="button" className="button secondary" onClick={onRemove}>
+            {file.kind === 'result' ? 'Remove saved file' : 'Remove file'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -73,7 +81,11 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
       <>
         {formatSgd(last.netInvestedSgd)} in, {formatDate(result.series[0].date)} to {formatDate(last.date)}
         <span className="hero-files">
-          {names.length > 1 ? `Your files (${names.length}): ${names.join(', ')}` : `Your file: ${names[0]}`}
+          {file.saved
+            ? `Saved on this device: ${names.join(', ')}`
+            : names.length > 1
+              ? `Your files (${names.length}): ${names.join(', ')}`
+              : `Your file: ${names[0]}`}
         </span>
       </>
     );
@@ -99,8 +111,8 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
           <BrokerPicker value={broker} onChange={onBroker} />
           <DropZone onFiles={onFiles} />
           <p className="privacy">
-            Your file is read in this browser and never uploaded or stored. Only the tickers and the first date are sent, to
-            fetch prices.
+            Your file is read in this browser and never uploaded. A copy stays on this device until you remove it. Only the
+            tickers and the first date are sent, to fetch prices.
           </p>
         </div>
         <div className="intro-side">
@@ -185,6 +197,7 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming 
           <div className="section-body">
             <p className="section-intro">Choose the format, then start a new report from another file or add a file to this one.</p>
             {actions}
+            <p className="saved-note">Saved on this device only. Clearing browser data removes it.</p>
           </div>
         </section>
       )}

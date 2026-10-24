@@ -130,7 +130,7 @@ export function Home({ sample }: { sample: SampleState }) {
       }>
         <p>
           Export an activity statement from your broker and check it on the Analyse page. The whole calculation runs in this browser: your
-          file is never uploaded and nothing about it is stored. Only the list of tickers and the first date leave your
+          file is never uploaded, and a copy stays on this device until you remove it. Only the list of tickers and the first date leave your
           device, to fetch prices. You get the same two numbers, the same breakdown, and a card or PDF to keep.
         </p>
       </Scene>

@@ -9,6 +9,7 @@ import { Home } from './Home';
 import { Methodology } from './Methodology';
 import { Navbar } from './Navbar';
 import { Link, scrollToHash, usePath } from './router';
+import { clearLedger, loadLedger, saveLedger } from './saved';
 import { runUpload, type UploadOutcome } from './upload';
 
 export type SampleState = { kind: 'loading' } | { kind: 'error' } | { kind: 'empty' } | { kind: 'loaded'; sample: SampleLoaded };
@@ -19,7 +20,7 @@ export type FileState =
   | { kind: 'empty'; files: InputFile[] }
   | { kind: 'mismatch'; files: InputFile[]; message: string }
   | { kind: 'rejected'; files: InputFile[]; rejected: Rejection[] }
-  | { kind: 'result'; files: InputFile[]; timing: FlowTiming; out: UploadOutcome & { kind: 'result' } };
+  | { kind: 'result'; files: InputFile[]; timing: FlowTiming; out: UploadOutcome & { kind: 'result' }; saved?: boolean };
 
 // Decision "broker picker": a file whose detected format differs from the pick is not computed.
 const FORMAT_NAME = { canonical: 'a plain CSV', ibkr: 'an Interactive Brokers activity statement' };
@@ -32,6 +33,12 @@ function mismatch(files: InputFile[], picked: Broker): string | null {
   }
   return null;
 }
+
+// Reading localStorage throws when storage is disabled and does not exist outside a browser: both mean no storage.
+let storage: Storage | null = null;
+try {
+  storage = localStorage;
+} catch {}
 
 export function App() {
   const path = usePath();
@@ -49,24 +56,40 @@ export function App() {
     );
   }, []);
 
+  // Spec 10.12: a saved ledger runs again with fresh prices, on any route.
+  useEffect(() => {
+    const saved = storage && loadLedger(storage);
+    if (!saved) return;
+    setBroker(saved.broker);
+    check(saved.files, saved.timing, saved.broker, true);
+  }, []);
+
   // A direct load or a route change with a hash scrolls once the page has rendered.
   useEffect(() => {
     if (location.hash) scrollToHash(location.hash);
   }, [path]);
 
-  async function check(files: InputFile[], timing: FlowTiming = 'start') {
-    const wrong = mismatch(files, broker);
+  async function check(files: InputFile[], timing: FlowTiming = 'start', picked = broker, saved = false) {
+    const wrong = mismatch(files, picked);
     if (wrong) return setFile({ kind: 'mismatch', files, message: wrong });
     setFile({ kind: 'running', files });
     try {
       const out = await runUpload(files, fetch, timing);
-      if (out.kind === 'result') setFile({ kind: 'result', files, timing, out });
+      if (out.kind === 'result') {
+        if (storage) saveLedger(storage, { files, broker: picked, timing });
+        setFile({ kind: 'result', files, timing, out, saved });
+      }
       else if (out.kind === 'empty') setFile({ kind: 'empty', files });
       else setFile({ kind: 'rejected', files, rejected: out.rejected });
     } catch (e) {
       console.error(e);
       setFile({ kind: 'error', files });
     }
+  }
+
+  function removeSaved() {
+    if (storage) clearLedger(storage);
+    setFile({ kind: 'none' });
   }
 
   let page;
@@ -79,7 +102,8 @@ export function App() {
         onBroker={setBroker}
         onFiles={(files) => check(files)}
         onAddFiles={(files) => file.kind !== 'none' && check([...file.files, ...files])}
-        onTiming={(t) => file.kind === 'result' && check(file.files, t)}
+        onTiming={(t) => file.kind === 'result' && check(file.files, t, broker, file.saved)}
+        onRemove={removeSaved}
       />
     );
   else if (path === '/methodology')

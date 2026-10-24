@@ -1057,6 +1057,10 @@ a.tile-note:hover {
   padding-left: 1rem;
   max-width: 34em;
 }
+.saved-note {
+  font-size: var(--step--1);
+  color: var(--faded);
+}
 
 /* Analyse sections after Returns. */
 .analyse-section + .analyse-section {

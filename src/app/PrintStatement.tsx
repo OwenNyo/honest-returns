@@ -51,7 +51,7 @@ export function PrintStatement({ result, timing, chartImage, today }: { result: 
         <li>{FOOTNOTES.c}</li>
       </ol>
       <p>Generated on {formatDate(today)}</p>
-      <p>Nothing was stored. Your file was read in this browser and was not uploaded.</p>
+      <p>Your file was read in this browser and was not uploaded.</p>
     </section>
   );
 }
