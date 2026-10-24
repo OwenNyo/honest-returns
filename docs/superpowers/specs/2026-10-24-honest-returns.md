@@ -741,6 +741,10 @@ One moment: on load the brass band grows from the TWR mark to the XIRR mark (700
 - Broadsheet hairlines (default 3): none outside the chart grid and the number-line axis.
 - Gradient blobs, 3D coins, phones, stock illustrations: none; the number line and the chart are the only imagery.
 
+## 11c Footer (2026-10-24)
+
+`src/app/Footer.tsx`, rendered by `App.tsx` below every page, as `Navbar` is above it. One row from 960 px, stacked below. Left: the brand `Honest Returns` (Paper, Archivo 800, not a link). Then the links `Analyse`, `Methodology` and `GitHub` (the `REPO_URL` constant), plain text links in Faded, underlined on hover, each at least 44 px tall; buttons stay for actions. Right: a small Faded credit line, `Prices from Tiingo. Rates from the ECB. Charting by TradingView.`, with `TradingView` linking to https://www.tradingview.com/ and underlined, as a link inside a sentence. The hero keeps its own TradingView credit; the library licence asks for attribution and both are harmless. Padding from the space tokens; top border 1 px Rule, aligned with the page content.
+
 ## 12. Assumptions
 1. The engine runs in the browser; the Worker serves cached data only (section 3).
 2. Calendar-day valuation series; non-trading days carry price and rate.

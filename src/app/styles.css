@@ -148,6 +148,51 @@ a {
   }
 }
 
+/* Footer (spec 11c): stacked on phones and tablets, one row from 960 px; the top rule lines up with the page content. */
+.footer {
+  display: grid;
+  justify-items: start;
+  row-gap: 0.5rem;
+  margin: 0 max(var(--margin), (100% - 1120px) / 2 + var(--margin));
+  padding: var(--space) 0;
+  border-top: 1px solid var(--rule);
+  color: var(--faded);
+}
+.footer-brand {
+  font-weight: 800;
+  color: var(--paper);
+}
+.footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+}
+.footer nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-decoration: none;
+}
+.footer nav a:hover {
+  text-decoration: underline;
+}
+.footer-credit {
+  font-size: var(--step--1);
+}
+@media (min-width: 960px) {
+  .footer {
+    display: flex;
+    align-items: center;
+    column-gap: 32px;
+  }
+  .footer nav {
+    column-gap: 32px;
+  }
+  .footer-credit {
+    margin-left: auto;
+  }
+}
+
 /* Analyse: the section list (spec 15.1.5). */
 .analyse-bar {
   display: contents;

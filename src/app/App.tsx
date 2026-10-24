@@ -5,6 +5,7 @@ import { Analyse } from './Analyse';
 import type { InputFile } from './combine';
 import type { Broker } from './BrokerPicker';
 import { loadSample, type SampleLoaded } from './data';
+import { Footer } from './Footer';
 import { Home } from './Home';
 import { Methodology } from './Methodology';
 import { Navbar } from './Navbar';
@@ -145,6 +146,7 @@ export function App() {
     <>
       <Navbar path={path} />
       {page}
+      <Footer />
     </>
   );
 }
