@@ -3,6 +3,7 @@ import type { ComputeInput, ComputeResult, FlowTiming, LedgerRow } from '../engi
 import type { FileState, SampleState } from './App';
 import { BrokerPicker, type Broker } from './BrokerPicker';
 import { Decomposition } from './Decomposition';
+import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { Hero } from './Hero';
 import { Rejections } from './Rejections';
@@ -103,6 +104,22 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
               currency conversions cost.
             </p>
             <Decomposition d={shown.result.decomposition} />
+          </div>
+        ),
+        dividends: !!shown.result.dividends?.length && shown.result.decomposition && (
+          <div className="section-body">
+            <p className="section-intro">
+              Dividends after US tax. A dividend row from the broker counts with its own tax; without one, the dividend is
+              booked on the ex-date with {WITHHOLDING_PCT} withheld.
+            </p>
+            <DividendRows d={shown.result.decomposition} />
+            {shown.result.warnings
+              .filter((w) => w.code === 'dividend_on_ex_date')
+              .map((w) => (
+                <p key={w.code} className="notice">
+                  {w.message}
+                </p>
+              ))}
           </div>
         ),
       }

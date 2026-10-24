@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { LOAD_ERROR, SAMPLE_TITLE } from './Analyse';
 import type { SampleState } from './App';
 import { Decomposition } from './Decomposition';
+import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { formatDate, formatPct, formatSgd } from './format';
 import { Hero } from './Hero';
@@ -97,6 +98,15 @@ export function Home({ sample }: { sample: SampleState }) {
           {f.fxFrom.rate.toFixed(4)} on {formatDate(f.fxFrom.date)} to {f.fxTo.rate.toFixed(4)} on {formatDate(f.fxTo.date)}.
         </p>
       </Scene>
+
+      {!!s.dividends?.length && s.decomposition && (
+        <Scene title="What dividends added" rows={<DividendRows d={s.decomposition} />}>
+          <p>
+            {[...new Set(s.dividends.map((d) => d.ticker))].sort().join(' and ')} paid dividends. A Singapore resident has {WITHHOLDING_PCT} of US dividends withheld as tax, so only the rest was
+            added to the cash.
+          </p>
+        </Scene>
+      )}
 
       <Scene title="Why the method matters">
         {f.split && (

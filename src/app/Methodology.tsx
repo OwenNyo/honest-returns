@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { DAYS_PER_YEAR, MONTHLY_NEW_TICKERS, REPO_URL, XIRR_GUESS, XIRR_RANGE } from '../engine/constants';
+import { DAYS_PER_YEAR, MONTHLY_NEW_TICKERS, REPO_URL, US_WITHHOLDING, XIRR_GUESS, XIRR_RANGE } from '../engine/constants';
 import { FOOTNOTES } from './footnotes';
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const [LO, HI] = XIRR_RANGE;
+const WITHHOLDING = pct(US_WITHHOLDING.toNumber());
 
 // Spec 10.4. Numbers in the text come from the engine's constants. Sections 3, 6 and 10 open with footnotes a to c.
 export function Methodology() {
@@ -77,6 +78,19 @@ export function Methodology() {
         <p>
           Interactive Brokers reports the commission on a currency conversion in SGD, even when USD is sold. The importer
           adds it to the SGD side of the conversion, so it shows up in the conversion cost.
+        </p>
+      </Section>
+
+      <Section id="dividends" title="Dividends">
+        <p>
+          A dividend is due for the shares held at the start of its ex-date. Singapore residents have {WITHHOLDING} of US
+          dividends withheld. A dividend row in your file is matched to the latest ex-date of that ticker in the 90 days
+          before it and credits the amount minus the tax in the row; an empty tax field means {WITHHOLDING}. A dividend
+          with no row is credited on the ex-date with {WITHHOLDING} withheld, and the page says how many were.
+        </p>
+        <p>
+          No dividend receivable is carried between the ex-date and the pay date: the value dips on the ex-date and comes
+          back on the pay date, as in Portfolio Performance.
         </p>
       </Section>
 
