@@ -43,6 +43,11 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
   if (tab === 'file' && file.kind === 'result') {
     returns = (
       <Hero title={fileTitle} titleAs="p" result={file.out.result} ledger={file.out.ledger}>
+        {file.out.notices.map((n) => (
+          <p key={n} className="notice">
+            {n}
+          </p>
+        ))}
         <TimingToggle value={file.timing} onChange={onTiming} />
         {actions}
       </Hero>

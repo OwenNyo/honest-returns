@@ -1,11 +1,13 @@
 import { compute } from '../engine/compute';
 import { toFx, toPriceSeries } from '../engine/load-market';
 import type { ComputeResult, FlowTiming, IsoDate, LedgerRow, Rejection } from '../engine/types';
+import { detectFormat } from '../importers/detect';
+import { importIbkr } from '../importers/ibkr';
 import { ledgerTickers, parseCsv } from '../shared/csv';
 import { fetchPrices, firstDate } from './data';
 
 export type UploadOutcome =
-  | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; tickers: string[]; ledger: LedgerRow[] }
+  | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; tickers: string[]; ledger: LedgerRow[]; notices: string[] }
   | { kind: 'rejected'; rejected: Rejection[] }
   | { kind: 'empty' };
 
@@ -14,7 +16,10 @@ const list = (tickers: string[]) => [...tickers].sort().join(', ');
 
 // Spec 10.2: parse, then ticker availability, then compute to asOf. Any rejection means no numbers.
 export async function runUpload(text: string, fetchFn: typeof fetch = fetch, timing: FlowTiming = 'start'): Promise<UploadOutcome> {
-  const { rows, rejected } = parseCsv(text);
+  // Task 15: an IBKR activity statement is converted to canonical CSV first; its rejections carry statement lines.
+  const ibkr = detectFormat(text) === 'ibkr' ? importIbkr(text) : null;
+  if (ibkr?.rejected.length) return { kind: 'rejected', rejected: ibkr.rejected };
+  const { rows, rejected } = parseCsv(ibkr ? ibkr.csv : text);
   if (rejected.length) return { kind: 'rejected', rejected };
 
   const tickers = ledgerTickers(rows);
@@ -43,5 +48,5 @@ export async function runUpload(text: string, fetchFn: typeof fetch = fetch, tim
 
   const result = compute({ ledger: rows, prices: toPriceSeries(body.prices), fx: toFx(body.fx), endDate: body.asOf, flowTiming: timing });
   if (!result.ok) return { kind: 'rejected', rejected: result.rejected };
-  return { kind: 'result', result, asOf: body.asOf, tickers, ledger: rows };
+  return { kind: 'result', result, asOf: body.asOf, tickers, ledger: rows, notices: ibkr?.notices ?? [] };
 }

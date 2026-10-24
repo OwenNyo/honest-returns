@@ -801,3 +801,9 @@ a {
     font-size: var(--step-1);
   }
 }
+
+.notice {
+  border-left: 4px solid var(--brass);
+  padding-left: 1rem;
+  max-width: 34em;
+}
