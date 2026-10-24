@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { parseCsv } from '../shared/csv';
+import { compute } from './compute';
 import * as goldenA from './fixtures/golden-a';
 import type { ComputeInput, LedgerRow } from './types';
 import { valueDaily } from './valuation';
@@ -196,5 +197,80 @@ describe('valueDaily end-of-day checks and holidays', () => {
     // 140 SGD cash + 2 AAPL x 500 x 1.36
     expect(sat.valueSgd.toFixed(10)).toBe('1500.0000000000');
     expect(sat.fxDate).toBe('2020-08-28');
+  });
+});
+
+// Task 15 addendum: OPENING rows are applied first on their date and their total SGD value
+// is an external inflow, so TWR and XIRR describe the statement period.
+describe('valueDaily OPENING rows', () => {
+  // Golden A, with the 2020-08-28 deposit, FX and buy replaced by opening balances of equal value:
+  // 40 SGD + 2 AAPL x 500 x 1.36 = 1400 SGD.
+  const opened = () =>
+    lines(
+      '2020-08-28,OPENING,AAPL,2,500,USD,1000,0',
+      '2020-08-28,OPENING,,,,SGD,40,0',
+      '2020-08-31,DEPOSIT,,,,SGD,600,0',
+      '2020-09-01,WITHDRAW,,,,SGD,100,0',
+    );
+
+  test('opening position and cash give the same daily values as Golden A', () => {
+    expect(okSeries(input(opened())).series.map((p) => p.valueSgd.toFixed(10))).toEqual([
+      '1400.0000000000',
+      '1400.0000000000',
+      '1400.0000000000',
+      '2064.8000000000',
+      '1998.0000000000',
+    ]);
+  });
+
+  test('the opening holding is split like any other holding', () => {
+    expect(okSeries(input(opened())).series.map((p) => p.holdings.AAPL.toString())).toEqual(['2', '2', '2', '8', '8']);
+  });
+
+  test('the total opening value in SGD is the net external flow on the start date', () => {
+    expect(okSeries(input(opened())).series.map((p) => p.netFlowSgd.toFixed(10))).toEqual([
+      '1400.0000000000',
+      '0.0000000000',
+      '0.0000000000',
+      '600.0000000000',
+      '-100.0000000000',
+    ]);
+  });
+
+  test('opening USD cash is converted at the day rate for the inflow', () => {
+    const res = okSeries(input(lines('2020-08-28,OPENING,,,,USD,1000,0')));
+    expect(res.series[0].netFlowSgd.toFixed(10)).toBe('1360.0000000000');
+    expect(res.series[0].cash.USD.toString()).toBe('1000');
+  });
+
+  test('TWR treats the opening value as an inflow (Golden A TWR)', () => {
+    const res = compute(input(opened()));
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res.rejected));
+    expect(res.twr.value.toFixed(10)).toBe('0.0498448697');
+  });
+
+  test('XIRR treats the opening value as an inflow (Golden A XIRR)', () => {
+    const res = compute(input(opened()));
+    if (!res.ok || res.xirr.kind !== 'ok') throw new Error('expected an ok XIRR');
+    expect(Math.abs(Number(res.xirr.value.toString()) - 0.0633663606)).toBeLessThan(1e-9);
+  });
+
+  test('an opening position on a non-trading day uses the carried close and is not rejected', () => {
+    const res = okSeries(input(lines('2020-08-29,OPENING,AAPL,2,500,USD,1000,0'), { endDate: '2020-08-31' }));
+    expect(res.series.map((p) => p.valueSgd.toFixed(10))).toEqual([
+      '1360.0000000000', // 2 x 500 x 1.36, both carried from 08-28
+      '1360.0000000000',
+      '1424.8000000000', // 8 x 130 x 1.37 after the split
+    ]);
+  });
+
+  test('is applied before other rows that day: selling the opening position listed earlier in the file is valid', () => {
+    const res = okSeries(
+      input(lines('2020-08-28,SELL,AAPL,2,500,USD,1000,0', '2020-08-28,OPENING,AAPL,2,500,USD,1000,0'), {
+        endDate: '2020-08-28',
+      }),
+    );
+    expect(res.series[0].holdings.AAPL.toString()).toBe('0');
+    expect(res.series[0].cash.USD.toString()).toBe('1000');
   });
 });

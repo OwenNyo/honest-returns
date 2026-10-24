@@ -1,7 +1,7 @@
 import type Decimal from 'decimal.js';
 
 export type Ccy = 'SGD' | 'USD';
-export type RowType = 'DEPOSIT' | 'WITHDRAW' | 'FX' | 'BUY' | 'SELL' | 'DIVIDEND';
+export type RowType = 'DEPOSIT' | 'WITHDRAW' | 'FX' | 'BUY' | 'SELL' | 'DIVIDEND' | 'OPENING';
 export type IsoDate = string; // 'YYYY-MM-DD', calendar date, never a timestamp
 
 export interface LedgerRow {

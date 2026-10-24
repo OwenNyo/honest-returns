@@ -169,7 +169,7 @@ describe('parseCsv row-level rejections', () => {
   const cases: [string, string, string][] = [
     ['wrong_column_count', '2020-08-28,DEPOSIT,,,,SGD,1400', 'Row has 7 columns; expected 8.'],
     ['bad_date', '2021-02-30,DEPOSIT,,,,SGD,100,0', 'date must be a real date written as YYYY-MM-DD.'],
-    ['bad_type', '2020-08-28,TRANSFER,,,,SGD,100,0', 'type must be one of DEPOSIT, WITHDRAW, FX, BUY, SELL, DIVIDEND.'],
+    ['bad_type', '2020-08-28,TRANSFER,,,,SGD,100,0', 'type must be one of DEPOSIT, WITHDRAW, FX, BUY, SELL, DIVIDEND, OPENING.'],
     ['bad_currency', '2020-08-28,DEPOSIT,,,,EUR,100,0', 'currency must be SGD or USD.'],
     ['bad_number', '2020-08-28,DEPOSIT,,,,SGD,1e3,0', 'amount must be a plain number like 1234.56.'],
     ['missing_field', '2020-08-28,BUY,AAPL,2,,USD,1000,0', 'price is required for BUY.'],
@@ -221,5 +221,47 @@ describe('ledgerTickers', () => {
       '2020-08-31,SELL,VOO,1,310,USD,310,0',
     );
     expect(ledgerTickers(rows)).toEqual(['AAPL', 'VOO']);
+  });
+});
+
+// Task 15 addendum: OPENING rows carry a period statement's opening positions and cash.
+describe('parseCsv OPENING rows', () => {
+  test('accepts an opening position with ticker, quantity, price and USD amount', () => {
+    const { rows, rejected } = parse('2026-01-01,OPENING,AAPL,10,100,USD,1000,0');
+    expect(rejected).toEqual([]);
+    expect(plain(rows[0])).toEqual({
+      line: 2,
+      date: '2026-01-01',
+      type: 'OPENING',
+      ticker: 'AAPL',
+      quantity: '10',
+      price: '100',
+      currency: 'USD',
+      amount: '1000',
+      fees: '0',
+    });
+  });
+
+  test('accepts opening SGD cash with empty ticker, quantity and price', () => {
+    const { rows, rejected } = parse('2026-01-01,OPENING,,,,SGD,300,0');
+    expect(rejected).toEqual([]);
+    expect(plain(rows[0])).toMatchObject({ type: 'OPENING', ticker: null, quantity: null, price: null, currency: 'SGD', amount: '300' });
+  });
+
+  test('accepts opening USD cash, unlike DEPOSIT', () => {
+    const { rows, rejected } = parse('2026-01-01,OPENING,,,,USD,300,0');
+    expect(rejected).toEqual([]);
+    expect(plain(rows[0])).toMatchObject({ type: 'OPENING', ticker: null, currency: 'USD', amount: '300' });
+  });
+
+  test('rejects an opening position in SGD with trade_currency', () => {
+    expect(parse('2026-01-01,OPENING,AAPL,10,100,SGD,1000,0').rejected).toEqual([
+      { line: 2, code: 'trade_currency', message: 'OPENING must be in USD.' },
+    ]);
+  });
+
+  test('ledgerTickers includes tickers from opening positions', () => {
+    const { rows } = parse('2026-01-01,OPENING,MSFT,1,400,USD,400,0', '2026-01-01,OPENING,,,,SGD,300,0');
+    expect(ledgerTickers(rows)).toEqual(['MSFT']);
   });
 });

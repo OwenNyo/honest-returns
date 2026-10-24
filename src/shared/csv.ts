@@ -5,12 +5,13 @@ import { isIsoDate } from './dates';
 
 const HEADER = 'date,type,ticker,quantity,price,currency,amount,fees';
 const MAX_ROWS = 10000;
-const TYPES: RowType[] = ['DEPOSIT', 'WITHDRAW', 'FX', 'BUY', 'SELL', 'DIVIDEND'];
+const TYPES: RowType[] = ['DEPOSIT', 'WITHDRAW', 'FX', 'BUY', 'SELL', 'DIVIDEND', 'OPENING'];
 const NUMBER = /^-?\d+(\.\d+)?$/;
 const TICKER = /^[A-Z0-9.\-]{1,10}$/;
 
 type Field = 'ticker' | 'quantity' | 'price' | 'amount';
-const REQUIRED: Record<RowType, Field[]> = {
+// OPENING is checked with the BUY rules (a position) or the DEPOSIT rules (cash), see ruleType.
+const REQUIRED: Record<Exclude<RowType, 'OPENING'>, Field[]> = {
   DEPOSIT: ['amount'],
   WITHDRAW: ['amount'],
   FX: ['ticker', 'quantity', 'amount'],
@@ -18,7 +19,7 @@ const REQUIRED: Record<RowType, Field[]> = {
   SELL: ['ticker', 'quantity', 'price', 'amount'],
   DIVIDEND: ['ticker', 'amount'],
 };
-const MUST_BE_EMPTY: Record<RowType, Field[]> = {
+const MUST_BE_EMPTY: Record<Exclude<RowType, 'OPENING'>, Field[]> = {
   DEPOSIT: ['ticker', 'quantity', 'price'],
   WITHDRAW: ['ticker', 'quantity', 'price'],
   FX: ['price'],
@@ -65,16 +66,18 @@ function parseRow(text: string, line: number): LedgerRow | { code: RejectionCode
   if (!TYPES.includes(type)) return { code: 'bad_type', message: `type must be one of ${TYPES.join(', ')}.` };
   if (currency !== 'SGD' && currency !== 'USD') return { code: 'bad_currency', message: 'currency must be SGD or USD.' };
 
+  // An OPENING row is a position when it names a ticker, otherwise cash (spec Task 15 addendum).
+  const rule = type === 'OPENING' ? (ticker === '' ? 'DEPOSIT' : 'BUY') : type;
   const raw: Record<Field | 'fees', string> = { ticker, quantity: quantityS, price: priceS, amount: amountS, fees: feesS };
   for (const col of ['quantity', 'price', 'amount', 'fees'] as const) {
     if (raw[col] !== '' && !NUMBER.test(raw[col])) {
       return { code: 'bad_number', message: `${col} must be a plain number like 1234.56.` };
     }
   }
-  for (const col of REQUIRED[type]) {
+  for (const col of REQUIRED[rule]) {
     if (raw[col] === '') return { code: 'missing_field', message: `${col} is required for ${type}.` };
   }
-  for (const col of MUST_BE_EMPTY[type]) {
+  for (const col of MUST_BE_EMPTY[rule]) {
     if (raw[col] !== '') return { code: 'unexpected_field', message: `${col} must be empty for ${type}.` };
   }
 
@@ -90,7 +93,7 @@ function parseRow(text: string, line: number): LedgerRow | { code: RejectionCode
   if (fees.lt(0)) return { code: 'negative_fees', message: 'fees cannot be negative.' };
 
   const isFlow = type === 'DEPOSIT' || type === 'WITHDRAW';
-  const isTrade = type === 'BUY' || type === 'SELL' || type === 'DIVIDEND';
+  const isTrade = rule === 'BUY' || rule === 'SELL' || rule === 'DIVIDEND';
   if (isFlow && currency !== 'SGD') return { code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD.' };
   if (isTrade && currency !== 'USD') return { code: 'trade_currency', message: `${type} must be in USD.` };
   if (type === 'FX' && ((ticker !== 'SGD' && ticker !== 'USD') || ticker === currency)) {
@@ -111,12 +114,12 @@ function parseRow(text: string, line: number): LedgerRow | { code: RejectionCode
       };
     }
   }
-  if (isFlow && !fees.isZero()) return { code: 'fees_on_flow', message: `fees must be empty or 0 for ${type}.` };
+  if ((isFlow || type === 'OPENING') && !fees.isZero()) return { code: 'fees_on_flow', message: `fees must be empty or 0 for ${type}.` };
 
   return { line, date, type, ticker: ticker === '' ? null : ticker, quantity, price, currency, amount, fees };
 }
 
-// Sorted distinct tickers that need prices (BUY, SELL, DIVIDEND); FX tickers are currencies.
+// Sorted distinct tickers that need prices (BUY, SELL, DIVIDEND, OPENING); FX tickers are currencies.
 export function ledgerTickers(rows: LedgerRow[]): string[] {
   const set = new Set(rows.filter((r) => r.type !== 'FX' && r.ticker).map((r) => r.ticker!));
   return [...set].sort();
