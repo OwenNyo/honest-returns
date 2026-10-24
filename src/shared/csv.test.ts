@@ -265,3 +265,10 @@ describe('parseCsv OPENING rows', () => {
     expect(ledgerTickers(rows)).toEqual(['MSFT']);
   });
 });
+
+// Spec 17.1.8: only combineFiles sets usdFlows, for moomoo output. A plain file keeps the SGD-only rule.
+test('a USD DEPOSIT in a plain file is still rejected with flow_currency', () => {
+  expect(parseCsv([HEADER, '2024-03-05,DEPOSIT,,,,USD,1501.99,0'].join('\n')).rejected).toEqual([
+    { line: 2, code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD.' },
+  ]);
+});

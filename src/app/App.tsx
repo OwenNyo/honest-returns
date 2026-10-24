@@ -24,7 +24,7 @@ export type FileState =
   | { kind: 'result'; files: InputFile[]; timing: FlowTiming; out: UploadOutcome & { kind: 'result' }; saved?: boolean };
 
 // Decision "broker picker": a file whose detected format differs from the pick is not computed.
-const FORMAT_NAME = { canonical: 'a plain CSV', ibkr: 'an Interactive Brokers activity statement' };
+const FORMAT_NAME = { canonical: 'a plain CSV', ibkr: 'an Interactive Brokers activity statement', moomoo: 'a moomoo order history' };
 function mismatch(files: InputFile[], picked: Broker): string | null {
   for (const f of files) {
     const detected = detectFormat(f.text);

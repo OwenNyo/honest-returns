@@ -1,7 +1,7 @@
 import type Decimal from 'decimal.js';
 import { D } from '../engine/decimal';
 import type { Rejection, RejectionCode } from '../engine/types';
-import { HEADER } from '../shared/csv';
+import { HEADER, splitLine } from '../shared/csv';
 
 export interface SectionCounts { converted: number; skipped: number; rejected: number }
 export interface IbkrImport {
@@ -16,27 +16,6 @@ export interface IbkrImport {
 type Rec = { section: string; line: number; f: Record<string, string> }; // f: cells keyed by header name
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
-// One CSV line with double-quoted fields ("" is a quote inside a field).
-function splitLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (quoted) {
-      if (c !== '"') cur += c;
-      else if (line[i + 1] === '"') cur += line[++i];
-      else quoted = false;
-    } else if (c === '"') quoted = true;
-    else if (c === ',') {
-      out.push(cur);
-      cur = '';
-    } else cur += c;
-  }
-  out.push(cur);
-  return out;
-}
 
 // Data rows keyed by the most recent Header of their section. Total and SubTotal rows are dropped.
 function records(text: string): Rec[] {

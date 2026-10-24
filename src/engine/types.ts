@@ -55,7 +55,8 @@ export type RejectionCode =
   | 'after_as_of' | 'no_market_data' | 'not_trading_day' | 'negative_cash' | 'oversell'
   | 'dividend_unmatched' | 'dividend_duplicate'
   | 'benchmark_unavailable' // spec 10.14: the benchmark is not shown
-  | 'overlapping_files' | 'reconcile_position' | 'reconcile_cash'; // spec 15.4: combining files
+  | 'overlapping_files' | 'reconcile_position' | 'reconcile_cash' // spec 15.4: combining files
+  | 'fill_mismatch' | 'moomoo_files'; // spec 17.1.7: moomoo order history
 // file: set only when several files are combined (spec 15.4); the engine never sets it.
 // tickers: set only on unsupported_tickers and prices_not_loaded (spec 16.5), sorted.
 export interface Rejection { line: number | null; code: RejectionCode; message: string; file?: string; tickers?: string[] }
