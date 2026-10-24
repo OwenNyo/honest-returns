@@ -74,6 +74,8 @@ export interface Decomposition {
   withholding: Decimal;
   totalGain: Decimal; // local + fx - conversionCost - fees + dividends
 }
+// Spec 17.2.1: largest fall of the TWR line and annualised volatility of daily TWR returns.
+export interface Risk { maxDrawdown: Decimal; peakDate: IsoDate | null; troughDate: IsoDate | null; volatility: Decimal | null }
 export interface YearReturn { year: number; twr: Decimal; days: number }
 export type ComputeResult =
   | {
@@ -86,5 +88,6 @@ export type ComputeResult =
       explanation?: string; // full scope 7
       dividends?: Dividend[]; // full scope 6
       decomposition?: Decomposition; // full scope 5
+      risk?: Risk; // spec 17.2
     }
   | { ok: false; rejected: Rejection[] };

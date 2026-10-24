@@ -1,7 +1,9 @@
 import { daysBetween } from '../shared/dates';
 import { D } from './decimal';
+import { MIN_VOLATILITY_DAYS } from './constants';
 import { decompose } from './decompose';
 import { explainGap, yearlyTwr } from './explain';
+import { maxDrawdown, volatility } from './risk';
 import { annualise, dailyReturns, twr } from './twr';
 import type { ComputeInput, ComputeResult, Warning } from './types';
 import { valueDaily } from './valuation';
@@ -48,5 +50,6 @@ export function compute(input: ComputeInput): ComputeResult {
   const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
   const { dividends } = valued;
   const decomposition = decompose(series, input.ledger, input.fx, dividends);
-  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation, dividends, decomposition };
+  const risk = { ...maxDrawdown(series), volatility: series.length >= MIN_VOLATILITY_DAYS ? volatility(series) : null };
+  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation, dividends, decomposition, risk };
 }
