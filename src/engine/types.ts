@@ -38,6 +38,7 @@ export interface ValuationPoint {
   fxDate: IsoDate; // ECB date the rate came from (fxDate < date means carried)
   cash: Record<Ccy, Decimal>;
   holdings: Record<string, Decimal>; // end of day
+  valueUsd?: Decimal; // X_d = USD cash + holdings at close (spec 10.5); always set by valueDaily, optional for hand-built series
 }
 export interface RateResult { value: Decimal; annualised: boolean; days: number }
 export type XirrResult =
@@ -59,6 +60,14 @@ export interface Warning {
   date?: IsoDate;
   message: string;
 }
+export interface Decomposition {
+  local: Decimal;
+  fx: Decimal;
+  conversionCost: Decimal; // positive is a cost
+  dividends: Decimal; // after withholding
+  withholding: Decimal;
+  totalGain: Decimal; // local + fx - conversionCost + dividends
+}
 export interface YearReturn { year: number; twr: Decimal; days: number }
 export type ComputeResult =
   | {
@@ -70,5 +79,6 @@ export type ComputeResult =
       yearReturns?: YearReturn[]; // full scope 7
       explanation?: string; // full scope 7
       dividends?: Dividend[]; // full scope 6
+      decomposition?: Decomposition; // full scope 5
     }
   | { ok: false; rejected: Rejection[] };

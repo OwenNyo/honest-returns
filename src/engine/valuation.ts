@@ -149,6 +149,7 @@ export function valueDaily(input: ComputeInput): ValuationResult {
       fxDate: rate.date,
       cash: { ...cash },
       holdings: { ...holdings },
+      valueUsd: usd,
     });
   }
 

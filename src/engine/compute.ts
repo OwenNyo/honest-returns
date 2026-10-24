@@ -1,4 +1,5 @@
 import { daysBetween } from '../shared/dates';
+import { decompose } from './decompose';
 import { explainGap, yearlyTwr } from './explain';
 import { annualise, dailyReturns, twr } from './twr';
 import type { ComputeInput, ComputeResult, Warning } from './types';
@@ -30,5 +31,7 @@ export function compute(input: ComputeInput): ComputeResult {
   const yearReturns = yearlyTwr(series);
   const deposits = input.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
   const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
-  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation, dividends: valued.dividends };
+  const { dividends } = valued;
+  const decomposition = decompose(series, input.ledger, input.fx, dividends);
+  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation, dividends, decomposition };
 }
