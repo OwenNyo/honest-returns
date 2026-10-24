@@ -94,8 +94,8 @@ Numbers: plain decimals matching `^-?\d+(\.\d+)?$` after trim. No thousands sepa
 
 | type | ticker | quantity | price | currency | amount | fees | Effect |
 |---|---|---|---|---|---|---|---|
-| DEPOSIT | empty | empty | empty | SGD | > 0, SGD in | empty or 0 | SGD cash += amount. External flow. |
-| WITHDRAW | empty | empty | empty | SGD | > 0, SGD out | empty or 0 | SGD cash -= amount. External flow. |
+| DEPOSIT | empty | empty | empty | SGD or USD | > 0, in | empty or 0 | cash[currency] += amount. External flow; a USD amount counts in SGD at the day's valuation rate (spec 16.2). |
+| WITHDRAW | empty | empty | empty | SGD or USD | > 0, out | empty or 0 | cash[currency] -= amount. External flow; a USD amount counts in SGD at the day's valuation rate. |
 | FX | currency bought (`USD` or `SGD`) | > 0, amount bought | empty | currency sold | > 0, amount sold | >= 0, in sold currency | cash[currency] -= amount + fees; cash[ticker] += quantity |
 | BUY | US ticker | > 0 shares | > 0 USD | USD | > 0, = quantity x price | >= 0 USD | USD cash -= amount + fees; holding += quantity |
 | SELL | US ticker | > 0 shares | > 0 USD | USD | > 0, = quantity x price | >= 0 USD | USD cash += amount - fees; holding -= quantity |
@@ -126,7 +126,6 @@ Row level (all rows are checked; every failing row gets its first failing check 
 | `unexpected_field` | `{column} must be empty for {type}.` |
 | `not_positive` | `{column} must be greater than zero.` |
 | `negative_fees` | `fees cannot be negative.` |
-| `flow_currency` | `DEPOSIT and WITHDRAW must be in SGD.` |
 | `trade_currency` | `{type} must be in USD.` |
 | `fx_pair` | `FX must convert between SGD and USD: put the currency sold in currency and the currency bought in ticker.` |
 | `bad_ticker` | `ticker must be 1 to 10 characters using A to Z, 0 to 9, dot or hyphen.` |
@@ -151,6 +150,8 @@ Engine (stateful; the engine stops at the first one to avoid knock-on errors):
 | `oversell` | `This sells more {ticker} than is held: holding would be {quantity} at the end of {date}.` |
 | `dividend_unmatched` (scope 6) | `No {ticker} ex-dividend date in the 90 days up to {date}.` |
 | `dividend_duplicate` (scope 6) | `Another DIVIDEND row already matches the {ticker} ex-date {exDate}.` |
+
+`flow_currency` is no longer a parser check: since 2026-10-25 (spec 18.1.1) a plain file may hold USD DEPOSIT and WITHDRAW rows. The code stays for the IBKR importer, which rejects `Deposits & Withdrawals` rows in any currency other than SGD or USD with `DEPOSIT and WITHDRAW must be in SGD or USD.` (10.11).
 
 `negative_cash` is attached to the last row (in sort order, 6.2) on that date that debits that currency. `oversell` to the last SELL of that ticker on that date.
 
@@ -534,7 +535,7 @@ Same interface as IBKR (10.11). Blocked until Owen supplies a real, anonymised e
 `importIbkr(text: string): { rows: string; rejected: Rejection[] }` in `src/importers/ibkr.ts` returns canonical CSV text, which then goes through `parseCsv` like any upload. Detection: first line starts with `Statement,Header,`. Format (from memory of IBKR Activity Statement CSV; **needs a real export from Owen before this task starts**): every line is `Section,Header|Data|SubTotal|Total,...`; a `Header` line names the columns for the `Data` lines that follow in the same section. Sections read:
 - `Trades`, rows with `Asset Category = Stocks` and `DataDiscriminator = Order`: `Symbol`, `Date/Time` (`"2020-08-28, 10:15:32"`, take the date part), `Quantity` (negative = SELL), `T. Price`, `Proceeds`, `Comm/Fee`, `Currency`. -> BUY/SELL with `amount = abs(Proceeds)`, `fees = abs(Comm/Fee)`.
 - `Trades`, `Asset Category = Forex`, `Symbol = USD.SGD`: `Quantity` (USD, positive = bought USD), `Proceeds` (SGD), `Comm in USD` or similar commission column. -> FX row.
-- `Deposits & Withdrawals`: `Currency`, `Settle Date`, `Amount` -> DEPOSIT/WITHDRAW; non-SGD rows rejected with `flow_currency`.
+- `Deposits & Withdrawals`: `Currency`, `Settle Date`, `Amount` -> DEPOSIT/WITHDRAW in that currency when it is SGD or USD (USD allowed since 2026-10-25, spec 18.1.1); any other currency rejected with `flow_currency`, message `DEPOSIT and WITHDRAW must be in SGD or USD.`
 - `Dividends` and `Withholding Tax`: matched by date and the symbol at the start of `Description` -> DIVIDEND (amount = gross, fees = abs(withholding)).
 - `Corporate Actions`: ignored (splits come from Tiingo).
 Ignored: all other sections, `SubTotal` and `Total` lines. Open questions: time zone of `Date/Time`, the forex commission column name, and whether FX conversions appear in `Trades` for Owen's account type.
@@ -822,7 +823,7 @@ Owen supplied a real IBKR Singapore Activity Statement CSV (a year-to-date perio
   - `Stocks`: Quantity positive is a BUY, negative a SELL. `amount` = |Proceeds|, `fees` = |Comm/Fee|, `price` = T. Price, `date` = the date part of Date/Time. Fractional quantities are possible.
   - `Forex` with Symbol `USD.SGD`: an FX row. Quantity is the USD leg (negative means USD sold for SGD), T. Price is SGD per USD, Proceeds is the SGD leg. Map to the canonical FX row (ticker = currency received, quantity = amount received, currency = currency paid, amount = amount paid).
   - `Equity and Index Options`: out of scope. Skip and emit one notice `Options trades were skipped: {n} rows. Results are approximate because option premiums also moved your cash.`
-- `Deposits & Withdrawals,Data,Currency,Settle Date,Description,Amount`: SGD positive is DEPOSIT, negative is WITHDRAW. Non-SGD flows are rejected with `flow_currency` as 10.11 says.
+- `Deposits & Withdrawals,Data,Currency,Settle Date,Description,Amount`: Positive is DEPOSIT, negative is WITHDRAW, in the row's currency when it is SGD or USD (USD since 2026-10-25, spec 18.1.1). Other currencies are rejected with `flow_currency` as 10.11 says.
 - `Dividends,Data,Currency,Date,Description,Amount` and `Withholding Tax,Data,Currency,Date,Description,Amount`: the Description starts with the symbol and ISIN, for example `MSFT(US5949181045) Cash Dividend USD 0.91 per Share (Ordinary Dividend)`. Join dividend and tax rows by symbol and date. Emit DIVIDEND rows with `amount` = gross dividend and `fees` = |withholding|, so the engine uses the broker's actual tax. Task 18 must prefer `fees` on a DIVIDEND row over the 30% assumption when present.
 - **Period statements have opening balances.** `Change in NAV` has a Starting Value. Opening positions come from `Mark-to-Market Performance Summary,Data,Stocks,Symbol,Prior Quantity,Current Quantity,Prior Price,...`; opening cash per currency from `Cash Report,Data,Starting Cash,<Currency>,...`. New canonical row type `OPENING`, dated the period start: either `ticker` + `quantity` + `price` (= Prior Price) + `currency` for a position, or `currency` + `amount` for cash. The engine treats the total opening value in SGD as an external inflow on the start date, so TWR and XIRR describe the statement period. Spec 5.1 gains this row type, the parser accepts it, and the engine applies it before any other row that day.
 - Symbols on non-US listings (for example an Irish-domiciled ETF listed on LSE in USD) are usually absent from Tiingo and come back as unsupported tickers. Say so on the methodology page.
@@ -1219,7 +1220,7 @@ Engine changes this needs (small, both in existing code paths):
 2. `valuation.ts` day loop: a USD DEPOSIT or WITHDRAW adds its signed amount to the USD amount that is already converted at the day's rate in step 5 (today `openingUsd`), instead of to `netFlow` directly. So `netFlowSgd` holds the SGD equivalent.
 3. `compute.ts`, explanation deposits: only SGD DEPOSIT rows count as the investor's deposits (`r.currency === 'SGD'`). Amended 2026-10-25 (Owen, spec 17.1.8): DEPOSIT rows in either currency count, USD at the day's rate, but they are read from the ledger before exclusion (`ComputeInput.originalLedger`, set by `runUpload` to the combined rows before `excludeTickers`), so the synthetic USD deposits from excluded sales and dividends never count as money put in. On an OPENING date, the opening value is that day's `netFlowSgd` less all of that day's DEPOSIT and WITHDRAW rows, USD rows converted at that point's `fxRate`, so excluded flows on the opening date are not counted as opening value.
 
-The parser is unchanged: a file with a USD DEPOSIT or WITHDRAW is still rejected with `flow_currency`. USD flows only come from `excludeTickers`.
+The parser is unchanged by this section. Amended 2026-10-25 (spec 18.1.1): plain files may now hold USD DEPOSIT and WITHDRAW rows too, so USD flows come from `excludeTickers`, the moomoo funding rule, and the user's own file.
 
 ### 16.3 Share of what was bought
 
@@ -1304,7 +1305,7 @@ The timing toggle keeps the exclusion. `Choose another file` and `Add another fi
 
 ### 16.8 Unchanged
 
-Parser and `flow_currency`; the canonical CSV; importers; the API and the Worker; TWR, XIRR, decomposition and benchmark formulas; reconciliation rules and tolerances; rejection messages; `Request these tickers`; the 50-ticker limit (counted before exclusion); the Home sample; the Methodology page; uploads with nothing unavailable (no `excluded`, no labels).
+Parser (until spec 18.1.1 dropped the `flow_currency` check); the canonical CSV; importers; the API and the Worker; TWR, XIRR, decomposition and benchmark formulas; reconciliation rules and tolerances; rejection messages; `Request these tickers`; the 50-ticker limit (counted before exclusion); the Home sample; the Methodology page; uploads with nothing unavailable (no `excluded`, no labels).
 
 Visible side effects, accepted: the money-in line on the chart steps down on excluded buy dates and those dates carry the withdrawal arrow; the benchmark section's flows include the excluded buys and sales.
 
@@ -1445,8 +1446,8 @@ New `RejectionCode` members: `fill_mismatch`, `moomoo_files` (17.1.8).
 
 #### 17.1.8 Wiring
 
-- `src/shared/csv.ts`: `parseCsv(text, { usdFlows = false } = {})`. With `usdFlows`, a DEPOSIT or WITHDRAW in USD passes the `flow_currency` check. Only `combineFiles` sets it, and only for moomoo output. A plain CSV with a USD DEPOSIT is still rejected with `flow_currency`.
-- `src/app/combine.ts`, per file: `detectFormat` once; `ibkr` goes through `importIbkr` as now; `moomoo` through `importMoomoo`, then `parseCsv(out.csv, { usdFlows: true })`, with the same `lines` mapping and notices as IBKR. Period: `importMoomoo().period`, which equals the first and last row dates, as for a canonical file; `stated` is true only for IBKR, so no gap notices.
+- `src/shared/csv.ts`: `parseCsv(text, { usdFlows = false } = {})`. With `usdFlows`, a DEPOSIT or WITHDRAW in USD passes the `flow_currency` check. Only `combineFiles` sets it, and only for moomoo output. A plain CSV with a USD DEPOSIT is still rejected with `flow_currency`. Superseded 2026-10-25 (spec 18.1.1): the option and the parser check are removed; every file may hold USD DEPOSIT and WITHDRAW rows.
+- `src/app/combine.ts`, per file: `detectFormat` once; `ibkr` goes through `importIbkr` as now; `moomoo` through `importMoomoo`, then `parseCsv(out.csv, { usdFlows: true })` (since spec 18.1.1, plain `parseCsv(out.csv)`), with the same `lines` mapping and notices as IBKR. Period: `importMoomoo().period`, which equals the first and last row dates, as for a canonical file; `stated` is true only for IBKR, so no gap notices.
 - `combineFiles`, before converting: more than one moomoo file in the set gives one rejection, code `moomoo_files`, `line: null`, message `Use one moomoo file that covers all your trades. Cash is worked out from each file's own trades, so moomoo files cannot be combined.` Reason: each file's funding starts from zero cash, so a second file would be funded again for money the first file left in cash, and money in would be counted twice.
 - Explanation deposits (Owen, 2026-10-25; amends spec 16.2 change 3):
   - `src/engine/types.ts`: `ComputeInput` gains `originalLedger?: LedgerRow[]`, the ledger before exclusion. Absent means `ledger`.
@@ -1658,3 +1659,214 @@ No open questions remain for this round. The moomoo rules stay unverified until 
 - A moomoo export that starts after the first trade sells shares it never bought: the engine rejects it with `oversell`. The user must export from the account's first trade.
 - Withdrawn sale proceeds stay in the value to the end date, so value and XIRR are too high for a user who withdrew; TWR is unaffected except for cash drag.
 - Volatility over calendar days differs slightly from a trading-day figure in other tools; the methodology does not state it yet (17.2.1 states it here).
+
+## 18. Fourth round (2026-10-25): download the converted file, gain by holding
+
+Added 2026-10-25. Both features were grilled with Owen before this was written; the settled points are in `2026-10-24-phase2-decisions.md` under "Fourth round (2026-10-25)". Plan Tasks 39 to 42.
+
+State of the code when this was written: tasks 1 to 38 are built (`dev` at 74e959c). Pieces reused below: `combineFiles` and `mapBack` (`src/app/combine.ts`), `runUpload` and `UploadOutcome` (`src/app/upload.ts`), `FileState` (`src/app/App.tsx`), `Rejections` (`src/app/Rejections.tsx`), the Blob download at the end of `downloadCard` (`src/app/shareCard.ts` lines 172 to 178), `Scene`, `SECTIONS`, `signedSgd` (`src/app/Decomposition.tsx`), `formatSgd`, `formatDate`, `listTickers` (`src/app/format.ts`), `valueDaily` (`src/engine/valuation.ts`), `compute` (`src/engine/compute.ts`), `Dividend` (`src/engine/dividends.ts`).
+
+### 18.1 Download the converted file
+
+Goal: a user who uploaded an Interactive Brokers statement or a moomoo order history can save what the importer made of it, the canonical CSV of spec 5, to check it, fix it by hand, or upload it again as a plain CSV.
+
+Non-goals: a download of the merged ledger, of the ledger after exclusion, or of ADJUST rows from reconciliation; a download for a plain CSV file (it is already canonical); any server change. The file never leaves the device.
+
+#### 18.1.1 Plain files accept USD deposits and withdrawals (Owen)
+
+A moomoo conversion holds USD DEPOSIT rows (the funding rule, 17.1.6), so its converted file would fail as a plain CSV. Owen's call: drop the rule.
+- `src/shared/csv.ts`: the `flow_currency` check on DEPOSIT and WITHDRAW (line 122) is removed, and so is the `usdFlows` option of `parseCsv` (lines 59, 60, 73, 81). Every other check stays: `bad_currency` (SGD or USD only), `fees_on_flow`, `not_positive`, the field rules.
+- `src/app/combine.ts` line 54: `parseCsv(imported ? imported.csv : f.text)`.
+- The engine needs no change: `cashDeltas` moves `r.currency` and the day loop converts USD flows at the day's rate (16.2 changes 1 and 2). `explanationDeposits` already counts USD DEPOSIT rows at the day's rate (17.1.8), so a user's own USD deposit counts as money put in.
+- IBKR statements too (Owen, answering the open question at the checkpoint): a `Deposits & Withdrawals` row in USD becomes `{Settle Date},DEPOSIT,,,,USD,{amount},0` (positive Amount) or `WITHDRAW` (negative, amount = |Amount|), counted as money in or out at that day's valuation rate exactly like an SGD row. A row in any other currency is still rejected with `flow_currency`, message changed to `DEPOSIT and WITHDRAW must be in SGD or USD.` `src/importers/ibkr.ts` line 139: the check becomes `Currency !== 'SGD' && Currency !== 'USD'`, and line 141 emits `r.f.Currency` instead of `'SGD'`. The zero-amount skip is unchanged.
+- `RejectionCode` keeps `flow_currency` for that IBKR check only.
+- `src/engine/types.ts` line 16 comment becomes `// USD on DEPOSIT and WITHDRAW: from a file, moomoo funding or excludeTickers (spec 16.2, 18.1.1)`.
+
+#### 18.1.2 What `combineFiles` and `runUpload` expose
+
+`src/app/combine.ts`:
+```ts
+export type Converted = { name: string; csv: string }; // csv: the importer's canonical CSV text, header first
+export interface Combined { ...; converted: Converted[] } // one entry per IBKR or moomoo file, earliest period first
+```
+Each parsed entry keeps `csv: imported ? imported.csv : null`; after the period sort, `converted` is the entries with a `csv`, in the same order as `periods`. A plain CSV file adds no entry. The IBKR text is converted with the `known` currencies of the whole set (line 42), so a later statement that holds a position with no trades still gets its OPENING row; that is the file offered, not one converted alone.
+
+`src/app/upload.ts`:
+```ts
+| { kind: 'result'; ...as today; converted: Converted[] }
+| { kind: 'rejected'; rejected: Rejection[]; converted?: Converted[] }
+```
+`converted` is set on a rejected outcome only when the rejection comes from valuation or compute:
+- line 80, `compute` rejected: `converted: combined.converted` (covers `after_as_of`, `no_market_data`, `not_trading_day`, `negative_cash`, `oversell`, `dividend_unmatched`, `dividend_duplicate`).
+- line 75, `reconcile` rejected: `converted: combined.converted` unless the code is `reconcile_position`. The other rejections `reconcile` returns come from its `valueDaily` pass (`combine.ts` line 124), so they are valuation rejections.
+- Absent on every other rejection: importer and parse rejections, `moomoo_files`, `overlapping_files`, `reconcile_position`, `too_many_tickers`, `unsupported_tickers`, `prices_not_loaded`, `nothing_left`.
+An empty array (only plain files) shows no button, the same as absent.
+
+`src/app/App.tsx`: `FileState` `rejected` gains `converted?: Converted[]`, set from `out.converted` at line 95. The saved ledger is unchanged: a reload runs `runUpload` again and rebuilds `converted`.
+
+#### 18.1.3 The button
+
+`src/app/ConvertedDownloads.tsx` (new):
+```ts
+export const convertedName = (name: string) => `${name.replace(/\.[^.]*$/, '')}-converted.csv`;
+export function ConvertedDownloads({ files, note }: { files: Converted[]; note: string | null }): JSX.Element | null;
+```
+- Renders nothing when `files` is empty.
+- One `<button type="button" className="button secondary">` per file, in a `.actions` row. Label: `Download the converted file` when there is one file; `Download the converted {name}` for each when there are several (`Download the converted h1.csv`).
+- Click: `saveBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), convertedName(name))`. `saveBlob(blob: Blob, filename: string): void` is the object-URL download now inlined at the end of `downloadCard`, moved to an exported function in `src/app/shareCard.ts` and called from both places. No `data:` link.
+- `note`, when not null, is one `<p>` under the buttons.
+- File names: `U1234567_2024.csv` gives `U1234567_2024-converted.csv`; `statement` gives `statement-converted.csv`; `a.b.csv` gives `a.b-converted.csv`.
+
+Where it shows, in `src/app/Analyse.tsx`:
+- After a result: in the hero notices block (`extra`, lines 71 to 87), after the notices (line 84) and before `TimingToggle`: `<ConvertedDownloads files={file.out.converted} note={notices.length ? NOTICES_NOTE : null} />`.
+- After an engine rejection: in the `file-status` block, right after `<Rejections>` (line 111) and before `{actions}`: `{file.kind === 'rejected' && file.converted && <ConvertedDownloads files={file.converted} note={file.rejected.some((r) => r.line !== null) ? LINES_NOTE : null} />}`.
+
+Copy:
+- `NOTICES_NOTE`: `The notices above do not travel with the converted file.`
+- `LINES_NOTE`: `Line numbers above count lines in your original file, not in the converted file.`
+
+#### 18.1.4 What does not travel with the file
+
+The converted file holds rows only. Lost on the way, by design:
+- The IBKR statement period. Uploaded again as a plain CSV, the file's period is its first to last row date (15.4.2 step 2), so a gap between two converted statements gets no gap notice. ponytail: no period line in the canonical format; add a comment line only if users combine converted statements and miss the notice.
+- The options-skipped notice (option trades are not in the file at all).
+- The moomoo funding notice. The USD DEPOSIT rows the funding rule made are in the file and look like the user's own deposits.
+- The cash ADJUST rows and their notices: reconciliation books them on the merged ledger, not in any file. A later converted statement still has its OPENING rows, so uploading the converted set reconciles again and books the same adjustments.
+On a result page these are the notices above the button, which is what `NOTICES_NOTE` says. When there are no notices, no sentence shows.
+
+Rejection line numbers: engine rejections are mapped back to the statement or order-history line (`mapBack`, and `toStatement` in `combineFiles`), not to the converted file's line. Chosen handling: the `LINES_NOTE` sentence, no second line number. See assumption 18.3.3.
+
+Round trip (the test of this feature): a converted file uploaded as a plain CSV gives the same TWR, end value and net invested as the original upload. Checked by running the real engine on Task 30's statements `h1` and `h2` (VOO 400 then 440, rate 1.35): one statement gives TWR **0.0794117647**, end value 2202, net invested 2040, with or without conversion; both statements give 0.0794117647, 2302, 2140, with or without conversion. The moomoo fixture gives Task 38's figures (TWR 0.0649010829, value 4050, net invested 3807.6615) with no notices.
+
+### 18.2 Gain by holding
+
+Goal: on Analyse, one row per ticker held during the period, with its shares and SGD value on the end date, its weight, and its gain in SGD over the period; then the two cash rows, a row for what cash and exchange on cash added, and the total, which equals `decomposition.totalGain` exactly.
+
+Non-goals: on Home, the share card or the PDF (they never name tickers, 15.2, 15.3); per-ticker returns in percent (a percentage needs a time-weighted base per holding, which is a second engine); per-ticker split into price and exchange rate; tickers left out by exclusion.
+
+#### 18.2.1 Engine (`src/engine/holdings.ts`, new)
+
+```ts
+export type HoldingRow =
+  | { kind: 'ticker'; ticker: string; shares: Decimal; valueSgd: Decimal; weight: Decimal | null; gainSgd: Decimal }
+  | { kind: 'cash'; currency: Ccy; valueSgd: Decimal; weight: Decimal | null }
+  | { kind: 'rest'; gainSgd: Decimal }
+  | { kind: 'total'; valueSgd: Decimal; gainSgd: Decimal };
+
+export function holdingRows(
+  ledger: LedgerRow[], prices: PriceSeries, series: ValuationPoint[], dividends: Dividend[], totalGain: Decimal,
+): HoldingRow[];
+```
+With `last` = the last series point, `f_d` = the `fxRate` of the series point dated `d`:
+- Ticker rows: one per key of `last.holdings`, sorted A to Z. `valueDaily` adds a key on a ticker's first BUY or OPENING row and never removes it, so a closed position is there with 0 shares. Tickers that were excluded never get a key (their rows are cash flows, 16.2).
+- `shares` = `last.holdings[t]` (split-adjusted).
+- `close_t(d)` = the close of the latest bar of `prices[t]` dated on or before `d` (the carried close, as `valuation.ts` lines 106 and 140).
+- `valueSgd` = `shares x close_t(last.date) x last.fxRate`, the same arithmetic as `valuation.ts` lines 138 to 146 per ticker. Decision: `holdings.ts` reads the close from `prices` itself; `ValuationPoint` does not gain per-ticker values, because only this table needs them and only on the last day.
+- `gainSgd` = `valueSgd`
+  + for each SELL of `t`: `(amount - fees) x f_d`
+  + for each entry of `dividends` with ticker `t` whose `date` has a series point: `net x f_d` (row dividends and ex-date dividends alike, as `decompose.ts` lines 24 to 28; an ex-date after the end date has no point and adds nothing)
+  - for each BUY of `t`: `(amount + fees) x f_d`
+  - for each OPENING position row of `t`: `quantity x close_t(d) x f_d` (the opening value at the carried close, as `valuation.ts` line 110; the row price is not used).
+  DIVIDEND ledger rows are not read: `dividends` already holds them with their netted amounts.
+- Cash rows, SGD then USD: `valueSgd` = `last.cash.SGD`, and `last.cash.USD x last.fxRate`. Always both, even at 0.
+- `weight` = `valueSgd / last.valueSgd` on ticker and cash rows; `null` on all of them when `last.valueSgd` is 0. Ticker and cash weights add up to 1.
+- Rest row: `gainSgd` = `totalGain - sum of ticker gainSgd`. It is what cash earned: the exchange rate on USD cash, conversion costs, ADJUST rows. Trading fees are inside each ticker's gain.
+- Total row: `valueSgd` = `last.valueSgd`, `gainSgd` = `totalGain` (the same Decimal object the decomposition holds).
+- Exact in Decimal (precision 40): ticker and cash `valueSgd` add up to `last.valueSgd` (`eq`), and ticker gains plus the rest row equal `totalGain` by construction.
+- Flow timing has no effect: nothing here reads `dailyReturn` or flow timing.
+
+Not attached to `ComputeResult`: Analyse calls it with `shown.input.ledger`, `shown.input.prices`, `result.series`, `result.dividends ?? []`, `result.decomposition.totalGain`. `shown.input.ledger` is the reconciled, reduced ledger that `compute` valued.
+
+#### 18.2.2 Goldens (computed with the real engine, 2026-10-25)
+
+Values `toFixed(10)`; shares `toFixed()`.
+
+D2 (spec 7 and 17.3.2; `holdings.test.ts` inlines the data as `decompose.test.ts` does): VOO 10 shares, value 1540, weight 0.9544468547, gain **243.6** (1540 - 1001 x 1.30 + 3.5 x 1.40); SGD cash 0, weight 0; USD cash 73.5, weight 0.0455531453; rest **-30.1** (conversion -35, plus 49 USD x 0.10); total value 1613.5, gain 213.5.
+
+D1: VOO gain 238.7; USD cash 68.6, weight 0.0426457789; rest -30.1; total 208.6. The ex-date dividend is the 4.9 difference between D2 and D1.
+
+D2 with `endDate` 2021-06-01: the ex-date 2021-06-02 is after the end, so VOO gain is **-1.3** and rest -35; total -36.3.
+
+C1 (spec 7, DIVIDEND row with fees 0.90): VOO 2 shares, value 949, weight 0.7212726015, gain **15.73** (13 price, 2.1 x 1.30 dividend); USD cash 366.73, weight 0.2787273985; rest 0; total 1315.73, gain 15.73.
+
+Golden H (new, closed position): VOO bars as Golden G (17.2.2); AAPL bars 2021-06-01 50, 06-04 55, 06-07 60; FX 1.30 on 2021-06-01, 1.32 on 2021-06-04; end 2021-06-07.
+```
+2021-06-01,DEPOSIT,,,,SGD,2600,0
+2021-06-01,FX,USD,2000,,SGD,2600,0
+2021-06-01,BUY,VOO,10,100,USD,1000,1
+2021-06-01,BUY,AAPL,10,50,USD,500,1
+2021-06-03,SELL,VOO,10,120,USD,1200,1
+```
+AAPL 10 shares, value 792, weight 0.2612102743, gain **140.7**; VOO **0** shares, value 0, weight 0, gain **257.4** ((1199 - 1001) x 1.30); SGD cash 0; USD cash 2240.04, weight 0.7387897257; rest **33.94** (1697 USD x 0.02); total 3032.04, gain 432.04.
+
+Golden O (new, opening position): AAPL bars 2023-12-29 195, 2024-01-31 210; FX 1.33 on 2023-12-29, 1.34 on 2024-01-31; end 2024-01-31.
+```
+2024-01-01,OPENING,AAPL,5,190,USD,950,0
+2024-01-01,OPENING,,,,SGD,100,0
+```
+AAPL 5 shares, value 1407, weight 0.9336429993, gain **110.25** (1407 - 5 x 195 x 1.33; the carried close 195, not the row price 190); SGD cash 100, weight 0.0663570007; USD cash 0; rest 0; total 1507, gain 110.25.
+
+Spec 16.4 with ZZZ excluded (`excludeTickers`, `originalLedger` set): AAPL 5 shares, value 1474, weight 0.6942253077, gain **124**; no ZZZ row; SGD cash 0; USD cash 649.23, weight 0.3057746923; rest -0.38 (38 USD x -0.01); total 2123.23, gain 123.62.
+
+Sample (local fixture; skip when absent), start and end timing alike: AAPL 275 shares, value 71926.4469, weight 0.5706799265, gain **28884.92825805**; VOO 71 shares, value 51412.849724, weight 0.4079206267, gain **19485.649987643**; SGD cash 0; USD cash 2697.109364396, weight 0.0213994468; rest **-334.172257297**; total 126036.405988396, gain 48036.405988396.
+
+Weights add up to 1.0000000000 (`toFixed(10)`) in every case above but the zero-value case.
+
+Zero end value: `2024-01-02,DEPOSIT,,,,SGD,100,0` and `2024-01-02,WITHDRAW,,,,SGD,100,0`, FX 1.35 on 2024-01-02, end 2024-01-02: cash weights `null`, total value 0, gain 0.
+
+#### 18.2.3 UI
+
+`SECTIONS` gains `{ id: 'holdings', title: 'Gain by holding' }` right after `decomposition`. Title chosen over "What you hold" because the rows include positions closed during the period and the right column is the gain.
+
+Analyse body, rendered when `shown.result.decomposition` exists:
+```tsx
+<Scene id="holdings" title={title('holdings')} rows={<HoldingRows rows={...} from={shown.result.series[0].date} />}>
+  <p>{prose}</p>
+  {shown.excluded && <p className="notice">These figures leave out {listTickers(shown.excluded.tickers)}.</p>}
+</Scene>
+```
+Prose, with `{from}` and `{to}` from `formatDate` of the first and last series dates: `Each holding's gain in SGD from {from} to {to}: its value at the end, plus what its sales and dividends paid, less what it cost including fees, each at that day's exchange rate. A holding you already had on {from} counts from its value that day. Cash and exchange on cash is the rest of the total gain: what the exchange rate did to USD cash, and what currency conversions cost. Under each holding: its shares, its value on {to}, and its part of the total value that day.`
+
+Layout (for the design reviewer): five columns do not fit 360 px, nor the 28rem rows column on desktop. The table keeps the existing two-cell `.row` markup in the Scene `rows` column, with a second line per row for the other three columns, the way `.year-note` adds a line under a year label on Home:
+- Header row, `<p className="row holdings-head">`: `Holding` and `Gain since {from}`. Both cells Faded.
+- Ticker row: left cell `AAPL` with a second line `<span className="row-note">5 shares, SGD 1,474.00, 69.4%</span>`; right cell `signedSgd(gain)` in `.num`. `1 share` when shares equal 1; shares printed with `toFixed()` (no exponent).
+- Cash rows `SGD cash` and `USD cash`: second line `SGD 649.23, 30.6%`; right cell empty.
+- `Cash and exchange on cash`: no second line; right cell `signedSgd(rest)`.
+- `Total`, class `row total`: second line `SGD 2,123.23`; right cell `signedSgd(totalGain)`. It reads the same figure as `Total gain` in the section above.
+- Weight: `{w x 100, toFixed(1)}%`, no sign; left out of the second line when `null`.
+- `.row-note`: `display: block; font-size: var(--step--1); color: var(--faded)`, the `.year-note` rules under a general name; `.year-note` is left as it is.
+- No eyebrow labels, no middle dots, no arrows; the separators are commas.
+Alternative for the reviewer: a real `<table>` in the Scene `below` slot (full content width on desktop) that collapses to this two-line form under 640 px. Not chosen: two layouts and a media query for the same rows.
+
+`holdingLines(rows: HoldingRow[]): { label: string; note: string | null; gain: string | null; total?: true }[]` in `src/app/Holdings.tsx` builds the strings; `HoldingRows({ rows, from })` renders the header row and the lines. D2 gives:
+| label | note | gain |
+|---|---|---|
+| `VOO` | `10 shares, SGD 1,540.00, 95.4%` | `+SGD 243.60` |
+| `SGD cash` | `SGD 0.00, 0.0%` | null |
+| `USD cash` | `SGD 73.50, 4.6%` | null |
+| `Cash and exchange on cash` | null | `-SGD 30.10` |
+| `Total` | `SGD 1,613.50` | `+SGD 213.50` (`total`) |
+
+### 18.3 Assumptions
+
+1. The converted file is offered as the importer made it, before combining, exclusion or reconciliation; ADJUST rows never appear in it.
+2. With notices on the result page, one sentence says they do not travel; with none, no sentence. The IBKR period is lost silently when there are no notices (18.1.4).
+3. Rejection line numbers stay statement lines, with one sentence saying so. Alternative not taken: carry a second number (`convertedLine`) on each rejection through `toStatement` and `mapBack` and print `line 37 (line 5 of the converted file)`; it touches every rejection path for a file the user may never open.
+4. `reconcile` rejections other than `reconcile_position` count as engine rejections (they come from its `valueDaily` pass) and get the button.
+5. Ticker rows are sorted A to Z, not by value.
+6. The table's last row is labelled `Total`, not `Total gain`, because its second line shows the end value as well; its gain equals `decomposition.totalGain` exactly.
+7. The cash rows show no gain; what cash earned is in the one rest row, as Owen specified.
+8. The weights are of the end value; a closed position shows 0.0%.
+
+### 18.4 Open questions
+
+None. Resolved by Owen at the checkpoint (2026-10-25):
+1. IBKR USD deposits and withdrawals are accepted and count as money in or out at that day's rate, like SGD ones; other currencies are still rejected (18.1.1).
+2. The title `Gain by holding` and the two-line row layout of 18.2.3 are accepted.
+
+### 18.5 Risks
+
+- A converted moomoo file shows its funding deposits as plain USD deposits; once uploaded again, nothing says they were inferred. The notice sentence next to the button is the only warning.
+- Two converted statements uploaded again lose the gap notice between them (18.1.4).
+- The rest row can be large for a portfolio that held a lot of USD cash through a big rate move; it is correct, but a reader may expect it to be small. The prose names what it holds.
+- Ticker gains include trading fees; the decomposition shows fees as their own line. The two sections add up to the same total by different splits.

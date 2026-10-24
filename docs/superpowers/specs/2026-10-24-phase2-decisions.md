@@ -124,3 +124,26 @@ Spec section 17, Tasks 34 to 38. Explorer readings, settled by Owen at the check
 ## Remove file on a failed upload (2026-10-25)
 
 Every state after an upload shows a remove button, not only a result. On a rejected, empty, mismatched or errored upload it reads `Remove file`, clears the file state and clears the saved set in localStorage, so nothing comes back on reload. Owen asked for it after a rejected IBKR file left no way back to the empty page.
+
+## Fourth round (2026-10-25)
+
+Spec section 18, Tasks 39 to 42. Items 1 to 6 and 9 to 12 were settled by Owen in the grill; items 7, 8 and 13 to 16 are explorer readings; items 17 and 18 are Owen's checkpoint answers the same day.
+
+1. **Download the converted file**: one button per IBKR or moomoo file, offering that file's own importer output (the canonical CSV), not the merged or reduced ledger. Plain CSV files get no button. Named `{name without extension}-converted.csv`, saved through a Blob and object URL from a `<button>` (the share card's pattern, now `saveBlob` in `shareCard.ts`), never a `data:` link.
+2. **When it shows**: after a result, and after a rejection from valuation or compute. Importer, parse and combine rejections, and availability rejections, show no button. `runUpload`'s rejected outcome carries `converted?: { name, csv }[]` for engine rejections only; `combineFiles` exposes `converted`, earliest first.
+3. **Plain files accept USD DEPOSIT and WITHDRAW** (Owen): the parser's `flow_currency` check and the `usdFlows` option go. Overrides "Partial reports" item 2 ("Files still may not contain USD flows") and "Third round" item 3 (the `usdFlows` option). The IBKR importer now accepts USD deposits too (item 17).
+4. **Where the button lives**: on a result, in the hero notices block after the notices, with `The notices above do not travel with the converted file.` when there are notices; after an engine rejection, in the file-status block under the rejection list.
+5. **What does not travel**: the IBKR statement period (so gap notices stop), the options-skipped notice, the moomoo funding notice, and the cash adjustments (they are booked again when the converted set is uploaded).
+6. **Privacy unchanged**: the file is built and saved in the browser; no server change.
+7. **Rejection line numbers** stay lines of the original file, with one sentence next to the button: `Line numbers above count lines in your original file, not in the converted file.` Rejected: a second line number on every rejection.
+8. **`reconcile` rejections other than `reconcile_position`** come from its valuation pass, so they get the button.
+9. **Gain by holding** (Owen asked for "What you hold"; title `Gain by holding` chosen because the rows include closed positions and the right column is the gain): a Scene on Analyse only, right after `Where the gain came from`. Never on Home, the share card or the PDF.
+10. **Rows**: one per ticker ever held (closed positions at 0 shares), SGD cash, USD cash, `Cash and exchange on cash` (total gain less the ticker gains), and the total, whose gain equals `decomposition.totalGain` exactly.
+11. **Ticker gain** in SGD = end value + sales (amount - fees) + net dividends (row and ex-date) - buys (amount + fees) - opening value at the carried close, each at its date's rate. Excluded tickers have no row and the section repeats `These figures leave out ...`. Flow timing has no effect.
+12. **Engine owns the arithmetic**: `holdingRows` in `src/engine/holdings.ts` returns Decimal rows; the UI only formats. It reads closes from `prices` instead of `ValuationPoint` gaining per-ticker values.
+13. **Layout** (accepted by Owen, item 18): the existing two-cell `.row` with a faded second line (`5 shares, SGD 1,474.00, 69.4%`), gain on the right, a header row `Holding` / `Gain since {first date}`. Five real columns do not fit 360 px or the 28rem rows column. For the design reviewer: a `<table>` in the Scene `below` slot with a phone fallback is the alternative.
+14. The total row is labelled `Total` (its second line shows the end value as well).
+15. Ticker rows are sorted A to Z; cash rows show value and weight but no gain.
+16. Weights are of the end value and `null` (not shown) when the end value is 0.
+17. **IBKR USD deposits and withdrawals** (Owen, checkpoint): a `Deposits & Withdrawals` row in USD becomes a USD DEPOSIT or WITHDRAW, counted as money in or out at that day's rate like an SGD row. Other currencies are still rejected with `flow_currency`, whose message becomes `DEPOSIT and WITHDRAW must be in SGD or USD.` Part of Task 39. Overrides spec 10.11 and the Task 15 addendum (SGD only).
+18. **Accepted by Owen at the checkpoint**: the title `Gain by holding` and the two-line row layout (item 13).

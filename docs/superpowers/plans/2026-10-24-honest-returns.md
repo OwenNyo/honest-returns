@@ -794,3 +794,134 @@ Task 22 note: the moomoo half of Task 22 is replaced by Tasks 37 and 38. Tiger s
 - `fill_mismatch` check: exists only because the sub-fill layout is unverified; remove it if the real export shows fills cannot be repeated.
 - `ComputeInput.originalLedger`: exists only so the explanation reads deposits from before exclusion; the engine otherwise works on the reduced ledger.
 - The 09:00 Singapore-time cutoff on Fill Time: a guess at the export's zone, to be replaced by a real conversion once a file shows it.
+
+---
+
+## Fourth round (spec section 18)
+
+Order: 39, 40, 41, 42. Each task leaves a working app. Run commands from the repo root. After each task: the task's tests, `npm run typecheck` and `npm run build`. Commits: one line, stage files by name. Spec: `docs/superpowers/specs/2026-10-24-honest-returns.md` section 18; decisions under "Fourth round (2026-10-25)".
+
+Review focus (inputs no test below pins, most likely first):
+- A file name with no extension or several dots: `convertedName` keeps everything before the last dot (tested in Task 40).
+- A portfolio fully withdrawn by the end date: weights are `null`, not a division by zero (tested in Task 41).
+- An ex-dividend date after the end date in the price data: it must add nothing to a ticker's gain (tested in Task 41).
+- A later IBKR statement that holds a position with no trades: its converted file must carry the OPENING row (tested in Task 40 through `h2`).
+- A rejection with no line (`no_market_data` for the rate): no line-number sentence (tested in Task 40).
+
+### Task 39: USD deposits and withdrawals in plain files and IBKR statements (spec 18.1.1)
+
+**Files:**
+- Modify: `src/shared/csv.ts` (remove the `flow_currency` check at line 122 and the `usdFlows` option at lines 59, 60, 73, 81), `src/app/combine.ts` (line 54, no option), `src/engine/types.ts` (line 16 comment, spec 18.1.1), `src/importers/ibkr.ts` (lines 139 to 141: USD rows emitted in USD, other currencies rejected with the new message)
+- Test: `src/shared/csv.test.ts`, `src/importers/ibkr.test.ts`, `src/importers/moomoo.test.ts`, `src/app/combine.test.ts`, `src/engine/compute.test.ts`, `src/app/upload.test.ts`
+
+**Interfaces:**
+- Produces: `parseCsv(text: string): { rows: LedgerRow[]; rejected: Rejection[] }` (no options). `importIbkr` emits USD DEPOSIT and WITHDRAW rows. `RejectionCode` keeps `flow_currency` (IBKR importer only, message `DEPOSIT and WITHDRAW must be in SGD or USD.`).
+
+- [ ] **Step 1: Change the tests.**
+  - `csv.test.ts`: remove the `flow_currency` row from the rejection table (line 179). Replace `a USD DEPOSIT in a plain file is still rejected with flow_currency` (line 270) with `USD DEPOSIT and WITHDRAW rows in a plain file parse`: `2024-01-02,DEPOSIT,,,,USD,100,0` and `2024-01-03,WITHDRAW,,,,USD,40,0` give two rows with `currency` `USD`, amounts `100` and `40`, no rejections. Add `a USD DEPOSIT with fees is still rejected with fees_on_flow`: `2024-01-02,DEPOSIT,,,,USD,100,1` gives `{ line: 2, code: 'fees_on_flow', message: 'fees must be empty or 0 for DEPOSIT.' }`.
+  - `moomoo.test.ts`: replace the two tests at lines 252 and 258 with `the output parses as a plain CSV, with three USD DEPOSIT rows` (`parseCsv(importMoomoo(FIXTURE).csv)`: no rejections, 3 USD DEPOSIT rows). Line 277: `parseCsv(importMoomoo(realCsv).csv)`.
+  - `combine.test.ts`: replace `a plain CSV with a USD DEPOSIT is still rejected with flow_currency` (line 329) with `a plain CSV with a USD DEPOSIT combines`: `combined([{ name: 'usd.csv', text: csv('2024-01-02,DEPOSIT,,,,USD,1000,0') }]).rows[0]` has type `DEPOSIT`, currency `USD`.
+  - `compute.test.ts` line 138: `parseCsv(MOOMOO_CSV)`; expected values unchanged.
+  - `upload.test.ts`, new `the spec 16.4 ledger written with USD flows computes from a plain file`: `HEADER`, `PARTIAL` lines 2 to 4, then `2024-01-02,WITHDRAW,,,,USD,1002,0`, `2024-03-01,DEPOSIT,,,,USD,438,0`, `2024-03-15,DEPOSIT,,,,USD,8.5,0`, with `partialBody([])`: last `netInvestedSgd.toFixed(2)` `1999.61`, last `valueSgd.toFixed(2)` `2123.23`.
+  - `ibkr.test.ts` (the synthetic `STATEMENT`, whose line 37 is `Deposits & Withdrawals,Data,USD,2026-03-11,Electronic Fund Transfer,500`):
+    - Replace `a USD deposit is rejected with flow_currency on its statement line` with `a USD deposit is emitted as a USD DEPOSIT on its statement line`: `importIbkr(STATEMENT).rejected` is `[]`; the csv contains the line `2026-03-11,DEPOSIT,,,,USD,500,0`; its `lines` entry is `37`.
+    - `converts every supported row, and the output parses with no rejections`: the expected list gains `row('2026-03-11', 'DEPOSIT', null, null, null, 'USD', '500', '0')`.
+    - `reports converted, skipped and rejected counts per section`: `Deposits & Withdrawals` becomes `{ converted: 3, skipped: 0, rejected: 0 }`.
+    - New `a USD withdrawal is emitted as a USD WITHDRAW`: `STATEMENT` with line 37 replaced by `Deposits & Withdrawals,Data,USD,2026-03-11,Disbursement Initiated by Owner,-120` gives the csv line `2026-03-11,WITHDRAW,,,,USD,120,0` and no rejections.
+    - New `a HKD deposit is still rejected with flow_currency`: `STATEMENT` with line 37 replaced by `Deposits & Withdrawals,Data,HKD,2026-03-11,Electronic Fund Transfer,500` gives `rejected` `[{ line: 37, code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD or USD.' }]` and `Deposits & Withdrawals` counts `{ converted: 2, skipped: 0, rejected: 1 }`.
+    - Unchanged: the real-export tests (skipped when `ibkr-real.csv` is absent) and `ibkr-sample.csv` tests (SGD only).
+- [ ] **Step 2:** Run `npx vitest run --project unit src/shared src/importers src/app/combine.test.ts src/app/upload.test.ts src/engine/compute.test.ts`. Expected: FAIL on the new and changed tests (and typecheck errors on the removed option once Step 3 lands).
+- [ ] **Step 3: Implement** per spec 18.1.1. `isFlow` stays in use for `fees_on_flow`. In `ibkr.ts`: reject unless `Currency` is `SGD` or `USD`, emit with `r.f.Currency`.
+- [ ] **Step 4: Verify.** Same command PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: usd deposits and withdrawals in plain files and ibkr statements`.
+
+### Task 40: Download the converted file (spec 18.1.2 to 18.1.4)
+
+**Files:**
+- Create: `src/app/ConvertedDownloads.tsx`, `src/app/converted.test.ts`
+- Modify: `src/app/combine.ts` (`Converted`, `Combined.converted`), `src/app/upload.ts` (`converted` on result and engine rejections), `src/app/App.tsx` (`FileState` rejected `converted`, line 95), `src/app/Analyse.tsx` (two placements), `src/app/shareCard.ts` (export `saveBlob`, used by `downloadCard`), `src/app/styles.css` only if the button row needs spacing in the hero block
+- Test: `src/app/combine.test.ts`, `src/app/upload.test.ts`, `src/app/converted.test.ts`
+
+**Interfaces:**
+- Consumes: `parseCsv(text)` from Task 39.
+- Produces: `type Converted = { name: string; csv: string }` and `Combined.converted: Converted[]` (`combine.ts`); `UploadOutcome` result `converted: Converted[]`, rejected `converted?: Converted[]`; `convertedName(name: string): string`; `ConvertedDownloads({ files, note }: { files: Converted[]; note: string | null })`; `saveBlob(blob: Blob, filename: string): void` from `shareCard.ts`.
+
+- [ ] **Step 1: Write failing tests.**
+  - `converted.test.ts`: `convertedName('U1234567_2024.csv')` is `U1234567_2024-converted.csv`; `convertedName('statement')` is `statement-converted.csv`; `convertedName('a.b.csv')` is `a.b-converted.csv`.
+  - `combine.test.ts`:
+    - `combineFiles offers each statement's converted CSV, earliest first`: `combined([h2, h1]).converted.map((c) => c.name)` is `['h1.csv', 'h2.csv']`; `converted[0].csv` starts with `date,type,ticker,quantity,price,currency,amount,fees\n` and contains `2026-01-01,OPENING,VOO,1,400,USD,400,0`.
+    - `a later statement's converted CSV keeps an opening position with no trades`: `combined([h1, h2]).converted[1].csv` contains `2026-04-01,OPENING,VOO,3,400,USD,1200,0`.
+    - `a plain CSV file has no converted CSV`: two canonical files give `converted` `[]`.
+    - `the moomoo converted CSV is the importer output`: `combined([{ name: 'moomoo.csv', text: MOOMOO }]).converted` equals `[{ name: 'moomoo.csv', csv: importMoomoo(MOOMOO).csv }]`.
+    - `one converted statement uploaded as a plain CSV gives the same result`: `runUpload([h1], stubFetch(ibkrBody()))` and `runUpload([{ name: 'h1-converted.csv', text: <converted[0].csv of that result> }], ...)` both give TWR `0.0794117647`, last `valueSgd` `2202.0000000000`, last `netInvestedSgd` `2040.0000000000`.
+    - `two converted statements uploaded as plain CSVs give the same result as the statements`: `[h1, h2]` and the two converted CSVs (`h1-converted.csv`, `h2-converted.csv`) both give TWR `0.0794117647`, `valueSgd` `2302.0000000000`, `netInvestedSgd` `2140.0000000000`, `notices` `[]`.
+    - `an engine rejection in a moomoo file carries its converted CSV`: the existing oversell case (`runUpload with a moomoo file`) has `out.converted` with one entry named `moomoo.csv`.
+    - `reconcile_position carries no converted CSV`: the existing `an opening position that differs from the earlier files` case has `out.converted` `undefined`.
+  - `upload.test.ts`:
+    - `a result carries an empty converted list for a plain file`: Golden A gives `converted` `[]`.
+    - `an engine rejection of a plain file carries an empty converted list`: the `after_as_of` case gives `converted` `[]`.
+    - `importer, parse and availability rejections carry no converted list`: a moomoo file with no `Fill Price` column, the parse-rejection case, and `partialBody()` without exclude each give `converted` `undefined`.
+    - `the converted moomoo file uploaded as a plain CSV gives the same result`: upload `importMoomoo(MOOMOO).csv` as `moomoo-converted.csv` with the Task 38 body: TWR `0.0649010829`, last `valueSgd` `4050.0000000000`, last `netInvestedSgd` `3807.6615000000`, `notices` `[]`.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/combine.test.ts src/app/upload.test.ts src/app/converted.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement** per 18.1.2 and 18.1.3: `combine.ts` keeps `csv` per parsed file and builds `converted` after the sort; `upload.ts` sets `converted: combined.converted` at the compute rejection (line 80), at the reconcile rejection unless `rejected[0].code === 'reconcile_position'` (line 75), and on the result; `App.tsx` passes `converted: out.converted` into the rejected state; `saveBlob` takes over `downloadCard`'s last five lines; `ConvertedDownloads` and the two placements in `Analyse.tsx` with the exact copy of 18.1.3.
+- [ ] **Step 4: Verify.** Tests PASS; `npx vitest run --project unit src/app` PASS (`shareCard.test.ts` unchanged); `npm run typecheck`; `npm run build`. In `npm run dev`, screenshots at 360 px and 1280 px: an IBKR statement result shows `Download the converted file` under the notices with `The notices above do not travel with the converted file.`, and the saved file is named `{name}-converted.csv` and uploads again as a Plain CSV with the same TWR; two statements show `Download the converted h1.csv` and `Download the converted h2.csv`; a copy of the moomoo fixture with its buy fills deleted (so the engine rejects the sale with `oversell`) shows the rejection, the button and `Line numbers above count lines in your original file, not in the converted file.`; a plain CSV shows no button; a moomoo file missing a column shows no button.
+- [ ] **Step 5: Commit** `feat: download the converted file`.
+
+### Task 41: Gain by holding in the engine (spec 18.2.1, 18.2.2)
+
+**Files:**
+- Create: `src/engine/holdings.ts`, `src/engine/holdings.test.ts` (D, C, H, O and the zero-value case inline; 16.4 through `excludeTickers`; the sample through the local fixture, skipped when absent, as `sample.test.ts` does)
+
+**Interfaces:**
+- Consumes: `compute` result (`series`, `dividends`, `decomposition.totalGain`), `ComputeInput.ledger` and `prices`.
+- Produces: `HoldingRow` (spec 18.2.1) and `holdingRows(ledger: LedgerRow[], prices: PriceSeries, series: ValuationPoint[], dividends: Dividend[], totalGain: Decimal): HoldingRow[]`.
+
+- [ ] **Step 1: Write failing tests** (a helper runs `compute` then `holdingRows` on its own input and result; Decimals compared with `toFixed(10)`, shares with `toFixed()`):
+  - `D2: VOO gain is 243.6 with the ex-date dividend`: VOO shares `10`, value `1540.0000000000`, weight `0.9544468547`, gain `243.6000000000`.
+  - `D2: rows in order are VOO, SGD cash, USD cash, rest, total`: kinds `['ticker', 'cash', 'cash', 'rest', 'total']`, currencies `SGD` then `USD`.
+  - `D2: USD cash is 73.5 and the rest is -30.1`: USD cash value `73.5000000000`, weight `0.0455531453`; SGD cash value `0.0000000000`, weight `0.0000000000`; rest `-30.1000000000`.
+  - `D2: total value is 1613.5 and total gain equals decomposition.totalGain exactly`: total gain `.eq(result.decomposition.totalGain)` and `213.5000000000`.
+  - `D1: VOO gain is 238.7, 4.9 below D2 (the net dividend 3.5 USD x 1.40)`.
+  - `an ex-date after the end date adds nothing`: D2 with `endDate` `2021-06-01`: VOO gain `-1.3000000000`, rest `-35.0000000000`, total `-36.3000000000`.
+  - `C1: a DIVIDEND row adds its net amount at the pay date's rate`: VOO value `949.0000000000`, weight `0.7212726015`, gain `15.7300000000`; USD cash `366.7300000000`; rest `0.0000000000`.
+  - `H: a closed position shows 0 shares and its realised gain`: VOO shares `0`, value `0.0000000000`, weight `0.0000000000`, gain `257.4000000000`; AAPL `10`, `792.0000000000`, `0.2612102743`, `140.7000000000`; USD cash `2240.0400000000`, weight `0.7387897257`; rest `33.9400000000`; total value `3032.0400000000`, gain `432.0400000000`.
+  - `O: an OPENING position's gain counts from the statement start at the carried close`: AAPL shares `5`, value `1407.0000000000`, weight `0.9336429993`, gain `110.2500000000`; SGD cash `100.0000000000`, weight `0.0663570007`; rest `0.0000000000`.
+  - `16.4: an excluded ticker has no row`: tickers `['AAPL']`; AAPL gain `124.0000000000`, value `1474.0000000000`, weight `0.6942253077`; USD cash `649.2300000000`, weight `0.3057746923`; rest `-0.3800000000`; total gain `123.6200000000`.
+  - `ticker and cash values add up to the end value exactly` on D2, H, O and 16.4 (`.eq(last.valueSgd)`).
+  - `ticker gains and the rest add up to the total gain exactly` on D2, H, O and 16.4 (`.eq`).
+  - `weights add up to 1` on D2, H, O and 16.4: sum `toFixed(10)` is `1.0000000000`.
+  - `a zero end value gives null weights`: the deposit-and-withdraw case of 18.2.2: both cash weights `null`; total value `0.0000000000`, gain `0.0000000000`.
+  - Sample, start timing: AAPL shares `275`, value `71926.4469000000`, weight `0.5706799265`, gain `28884.9282580500`; VOO `71`, `51412.8497240000`, `0.4079206267`, `19485.6499876430`; USD cash `2697.1093643960`, weight `0.0213994468`; rest `-334.1722572970`; total `126036.4059883960`, gain `48036.4059883960`.
+  - `flow timing has no effect`: the sample (and D2) under end timing gives the same rows as under start timing.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/engine/holdings.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement** per 18.2.1. Index the series by date once (`Map`); the carried close is `prices[t].findLast((b) => b.date <= d)!.close`. Decimal throughout.
+- [ ] **Step 4: Verify.** `npx vitest run --project unit src/engine` PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: gain by holding in the engine`.
+
+### Task 42: Gain by holding section on Analyse (spec 18.2.3)
+
+**Files:**
+- Create: `src/app/Holdings.tsx` (`holdingLines`, `HoldingRows`), `src/app/holdings.test.ts`
+- Modify: `src/app/sections.ts` (`holdings` after `decomposition`), `src/app/sections.test.ts` (SPEC list, eight sections), `src/app/Analyse.tsx` (`holdings` body), `src/app/styles.css` (`.row-note`, `.holdings-head`)
+
+**Interfaces:**
+- Consumes: `holdingRows` and `HoldingRow` from Task 41; `signedSgd`, `formatSgd`, `formatDate`, `listTickers`.
+- Produces: `holdingLines(rows: HoldingRow[]): { label: string; note: string | null; gain: string | null; total?: true }[]`; `HoldingRows({ rows, from }: { rows: HoldingRow[]; from: IsoDate })`.
+
+- [ ] **Step 1: Write failing tests.**
+  - `holdings.test.ts`, `D2 lines` (rows from `holdingRows` on Golden D2): exactly the five lines of the 18.2.3 table (`VOO` / `10 shares, SGD 1,540.00, 95.4%` / `+SGD 243.60`; `SGD cash` / `SGD 0.00, 0.0%` / null; `USD cash` / `SGD 73.50, 4.6%` / null; `Cash and exchange on cash` / null / `-SGD 30.10`; `Total` / `SGD 1,613.50` / `+SGD 213.50` with `total: true`).
+  - `one share reads 1 share`: a hand-built ticker row with shares 1 gives a note starting `1 share, `.
+  - `a closed position reads 0 shares`: Golden H's VOO line note is `0 shares, SGD 0.00, 0.0%` and gain `+SGD 257.40`.
+  - `null weights are left out`: the zero-value case gives cash notes `SGD 0.00` with no percent.
+  - `sections.test.ts` SPEC: `returns`, `years`, `risk`, `decomposition`, `holdings` (`Gain by holding`), `dividends`, `benchmark`, `raw-prices`; the "all seven" test becomes "all eight".
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/holdings.test.ts src/app/sections.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement** per 18.2.3: the Scene with the exact prose, the reused `These figures leave out ...` notice when `shown.excluded`, the header row `Holding` / `Gain since {formatDate(from)}`, `.row-note` and `.holdings-head` with existing tokens.
+- [ ] **Step 4: Verify.** Tests PASS; `npx vitest run --project unit src/app` PASS; `npm run typecheck`; `npm run build`. In `npm run dev`, screenshots at 360 px and 1280 px: an upload of the spec 16.4 CSV with `Continue without these holdings` shows `Gain by holding` after `Where the gain came from`, rows AAPL, SGD cash, USD cash, Cash and exchange on cash, Total, the `These figures leave out ZZZ.` notice, and Total `+SGD 123.62` equal to the decomposition's Total gain; the section link appears in the section row; nothing new on Home, the share card or the PDF.
+- [ ] **Step 5: Commit** `feat: gain by holding section on analyse`.
+
+### Incidental complexity (fourth round)
+
+- `saveBlob` moves out of `downloadCard` so both downloads share it; no new module.
+- `converted` is optional on a rejected outcome only so the UI can tell engine rejections (button) from the rest (no button).
+- `holdingRows` reads closes from `prices` again instead of `valueDaily` exposing per-ticker values; one `findLast` per ticker on the last day.
+- Removed: the `usdFlows` option of `parseCsv` (third round) and the parser's `flow_currency` check.
