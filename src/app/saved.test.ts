@@ -17,19 +17,19 @@ const files = [
   { name: '2024.csv', text: 'date,type\n2024-01-02,DEPOSIT' },
   { name: '2025.csv', text: 'date,type\n2025-01-02,DEPOSIT' },
 ];
-const data = { files, broker: 'ibkr' as const, timing: 'end' as const };
-const valid = { version: 1, files, broker: 'canonical', timing: 'start', savedAt: '2026-10-24T03:00:00.000Z' };
+const data = { files, broker: 'ibkr' as const, timing: 'end' as const, exclude: ['ZZZ'] };
+const valid = { version: 1, files, broker: 'canonical', timing: 'start', exclude: [], savedAt: '2026-10-24T03:00:00.000Z' };
 const stored = (v: unknown) => fakeStorage({ [KEY]: JSON.stringify(v) });
 
 afterEach(() => vi.useRealTimers());
 
-test('saveLedger writes version 1 with files, broker and timing under honest-returns:ledger:v1', () => {
+test('saveLedger writes version 1 with files, broker, timing and exclude under honest-returns:ledger:v1', () => {
   const s = fakeStorage();
   saveLedger(s, data);
   expect(JSON.parse(s.getItem(KEY)!)).toMatchObject({ version: 1, ...data });
 });
 
-test('loadLedger returns what saveLedger wrote', () => {
+test('loadLedger returns what saveLedger wrote, exclude included', () => {
   const s = fakeStorage();
   saveLedger(s, data);
   const loaded = loadLedger(s);
@@ -39,6 +39,12 @@ test('loadLedger returns what saveLedger wrote', () => {
 test('loadLedger returns a stored valid ledger without the version field', () => {
   const { version: _, ...rest } = valid;
   expect(loadLedger(stored(valid))).toEqual(rest);
+});
+
+// Spec 16.7: saves from before partial reports have no exclude field.
+test('loadLedger reads a missing exclude as an empty list', () => {
+  const { version: _, exclude: __, ...rest } = valid;
+  expect(loadLedger(stored({ ...valid, exclude: undefined }))).toEqual({ ...rest, exclude: [] });
 });
 
 test('savedAt is an ISO date string for the time of saving', () => {
@@ -80,6 +86,9 @@ test.each([
   ['broker is missing', { ...valid, broker: undefined }],
   ['timing is not start or end', { ...valid, timing: 'middle' }],
   ['timing is missing', { ...valid, timing: undefined }],
+  ['exclude is not an array', { ...valid, exclude: 'ZZZ' }],
+  ['an exclude entry is not a string', { ...valid, exclude: [1] }],
+  ['exclude is null', { ...valid, exclude: null }],
 ])('loadLedger returns null when %s', (_, value) => {
   expect(loadLedger(stored(value))).toBeNull();
 });

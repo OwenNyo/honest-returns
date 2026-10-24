@@ -1,12 +1,7 @@
 import { useState } from 'react';
-import { UNSUPPORTED_PREFIX } from './upload';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const longDate = (d: string) => `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
-
-// ponytail: the tickers are read back from our own unsupported_tickers message (upload.ts builds it),
-// because the outcome shape is pinned by tests; carry them on the rejection if a second consumer appears.
-export const unsupportedTickers = (message: string) => message.slice(UNSUPPORTED_PREFIX.length, -1).split(', ');
 
 // Spec 10.8: a button under an unsupported_tickers rejection.
 export function RequestTickers({ tickers }: { tickers: string[] }) {
