@@ -1,4 +1,5 @@
 import type Decimal from 'decimal.js';
+import type { Dividend } from './dividends';
 
 export type Ccy = 'SGD' | 'USD';
 export type RowType = 'DEPOSIT' | 'WITHDRAW' | 'FX' | 'BUY' | 'SELL' | 'DIVIDEND' | 'OPENING';
@@ -13,7 +14,7 @@ export interface LedgerRow {
   price: Decimal | null;
   currency: Ccy;
   amount: Decimal;
-  fees: Decimal; // fees = 0 when empty
+  fees: Decimal; // 0 when empty; on DIVIDEND, empty means 30% of amount (tax withheld)
 }
 export interface PriceBar { date: IsoDate; close: Decimal; splitFactor: Decimal; divCash: Decimal } // unadjusted
 export type PriceSeries = Record<string, PriceBar[]>; // trading days only, ascending
@@ -68,5 +69,6 @@ export type ComputeResult =
       warnings: Warning[];
       yearReturns?: YearReturn[]; // full scope 7
       explanation?: string; // full scope 7
+      dividends?: Dividend[]; // full scope 6
     }
   | { ok: false; rejected: Rejection[] };

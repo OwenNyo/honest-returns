@@ -1,10 +1,11 @@
 import type Decimal from 'decimal.js';
 import { addDays } from '../shared/dates';
 import { D } from './decimal';
-import type { Ccy, ComputeInput, LedgerRow, Rejection, RowType, ValuationPoint, Warning } from './types';
+import { type Dividend, entitlements, matchDividendRows } from './dividends';
+import type { Ccy, ComputeInput, IsoDate, LedgerRow, Rejection, RowType, ValuationPoint, Warning } from './types';
 
 export type ValuationResult =
-  | { ok: true; series: ValuationPoint[]; warnings: Warning[] }
+  | { ok: true; series: ValuationPoint[]; warnings: Warning[]; dividends: Dividend[] }
   | { ok: false; rejected: Rejection[] };
 
 // Spec 6.2 step 3: order of rows within one day.
@@ -52,6 +53,12 @@ export function valueDaily(input: ComputeInput): ValuationResult {
     if (!barDates[t].has(r.date)) return reject(r.line, 'not_trading_day', `${t} did not trade on ${r.date}.`);
   }
 
+  // Spec 10.6: match DIVIDEND rows to ex-dates; entitlements with no row are credited net on the ex-date.
+  const { matched, unmatched, rejected } = matchDividendRows(input.ledger, entitlements(input.ledger, prices));
+  if (rejected.length) return { ok: false, rejected };
+  const exDateCash: Record<IsoDate, Decimal> = {};
+  for (const e of unmatched) exDateCash[e.exDate] = (exDateCash[e.exDate] ?? D(0)).plus(e.net);
+
   const cash: Record<Ccy, Decimal> = { SGD: D(0), USD: D(0) };
   const holdings: Record<string, Decimal> = {};
   const barIdx: Record<string, number> = {}; // index of the latest bar dated <= d, per held ticker
@@ -72,6 +79,9 @@ export function valueDaily(input: ComputeInput): ValuationResult {
         holdings[t] = holdings[t].times(bar.splitFactor);
       }
     }
+
+    // 2. Ex-dividend cash with no pay-date row.
+    if (exDateCash[d]) cash.USD = cash.USD.plus(exDateCash[d]);
 
     // 3. Ledger rows dated d, already in priority order.
     const today: LedgerRow[] = [];
@@ -146,5 +156,12 @@ export function valueDaily(input: ComputeInput): ValuationResult {
   if (carried > 0) {
     warnings.push({ code: 'fx_carried', message: `Exchange rate carried forward on ${carried} days without an ECB fixing.` });
   }
-  return { ok: true, series, warnings };
+  if (unmatched.length) {
+    warnings.push({
+      code: 'dividend_on_ex_date',
+      message: `${unmatched.length} dividends were booked on the ex-date because no pay-date row was found.`,
+    });
+  }
+  const dividends = [...matched, ...unmatched].sort((a, b) => a.date.localeCompare(b.date));
+  return { ok: true, series, warnings, dividends };
 }

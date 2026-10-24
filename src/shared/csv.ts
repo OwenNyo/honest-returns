@@ -1,5 +1,6 @@
 import type Decimal from 'decimal.js';
 import { D } from '../engine/decimal';
+import { US_WITHHOLDING } from '../engine/dividends';
 import type { Ccy, LedgerRow, Rejection, RejectionCode, RowType } from '../engine/types';
 import { isIsoDate } from './dates';
 
@@ -85,7 +86,8 @@ function parseRow(text: string, line: number): LedgerRow | { code: RejectionCode
   const quantity = num(quantityS);
   const price = num(priceS);
   const amount = D(amountS);
-  const fees = num(feesS) ?? D(0);
+  // Decision 4: empty fees on a DIVIDEND row means the default US withholding; an explicit value, even 0, is the actual tax.
+  const fees = num(feesS) ?? (type === 'DIVIDEND' ? amount.times(US_WITHHOLDING) : D(0));
 
   for (const [col, v] of [['quantity', quantity], ['price', price], ['amount', amount]] as const) {
     if (v !== null && !v.gt(0)) return { code: 'not_positive', message: `${col} must be greater than zero.` };

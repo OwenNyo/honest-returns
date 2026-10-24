@@ -30,5 +30,5 @@ export function compute(input: ComputeInput): ComputeResult {
   const yearReturns = yearlyTwr(series);
   const deposits = input.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
   const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
-  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation };
+  return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation, dividends: valued.dividends };
 }
