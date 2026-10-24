@@ -139,6 +139,7 @@ Ticker availability (after parse, from `/api/prices`; one rejection listing all,
 | `unsupported_tickers` | `These tickers are not supported yet: {list}.` (list comma-separated, sorted; the Rejections list adds the closing "No results were calculated." line once) |
 | `too_many_tickers` | `A file can hold at most 50 different tickers; this one has {n}.` |
 | `prices_not_loaded` | `Prices for {list} are not loaded yet. Try again tomorrow.` |
+| `nothing_left` | `Excluding these holdings leaves nothing to measure.` (spec 16.5; no `tickers`, so no Continue button) |
 
 Engine (stateful; the engine stops at the first one to avoid knock-on errors):
 | code | message |
@@ -1177,3 +1178,137 @@ Incidental complexity: the repeated `valueDaily` passes in step 7, one per later
 - `chart.takeScreenshot()` on an off-screen container: confirm the canvas is non-empty in Safari before relying on it.
 - Reconciliation depends on the Task 15 importer producing exact Prior Quantity values and Starting Cash per currency.
 - The explanation sentence counts only DEPOSIT rows (`compute.ts` line 31); once OPENING rows exist (Task 15), the opening value should count as a deposit for the share figures. Owned by Task 15; flagged here because combined statements make it common.
+
+## 16. Partial reports: continue without unsupported holdings
+
+Added 2026-10-24 (Owen). Decisions are recorded in `2026-10-24-phase2-decisions.md` under "Partial reports (Owen, 2026-10-24)".
+
+### 16.1 Goal and non-goals
+
+Goal: when an upload names tickers with no price data (`unsupported_tickers` or `prices_not_loaded`), the user can choose `Continue without these holdings` and get a report for the rest of the portfolio, labelled as partial everywhere it is shown.
+
+Non-goals: excluding a ticker that has prices (the button only appears for availability rejections); per-ticker choice (all listed tickers are excluded together); estimating the excluded holdings' value; any change to file parsing.
+
+### 16.2 Exclusion rules
+
+An excluded holding is treated as outside the measured portfolio. The measured portfolio keeps all cash; money that leaves cash to buy the holding is an outflow, and money that comes back from it is an inflow.
+
+| Row of an excluded ticker | Becomes | Cash effect (unchanged) | Flow in SGD |
+| --- | --- | --- | --- |
+| BUY | `WITHDRAW`, currency USD, amount = `amount + fees` | USD down by `amount + fees` | outflow, `(amount + fees) x rate(d)` |
+| SELL | `DEPOSIT`, currency USD, amount = `amount - fees` | USD up by `amount - fees` | inflow, `(amount - fees) x rate(d)` |
+| DIVIDEND | `DEPOSIT`, currency USD, amount = `amount - fees` (fees is the withholding, already defaulted to 30% by the parser when empty) | USD up by the net dividend | inflow, `(amount - fees) x rate(d)` |
+| OPENING with that ticker | dropped | none (a position row has no cash effect) | none: it no longer counts in the opening inflow |
+
+OPENING cash rows, FX rows, ADJUST rows and every row of other tickers are unchanged. A synthetic row keeps the source row's `line` (so `mapBack` and rejection line numbers point at the original BUY, SELL or DIVIDEND row), and has `ticker: null`, `quantity: null`, `price: null`, `fees: 0`, like any DEPOSIT or WITHDRAW.
+
+`rate(d)` is the rate the engine already uses to value day `d`: the latest ECB point dated on or before `d` (`valuation.ts` step 5, the `fxRate` on that day's `ValuationPoint`). The same rate is used under start-of-day and end-of-day timing, as for opening values (decision 2).
+
+Why USD flow rows and not SGD WITHDRAW or a new row type:
+- An SGD WITHDRAW of the SGD equivalent would leave the USD in cash and take SGD out, so a user who converted all SGD to USD would hit `negative_cash`. A USD flow moves exactly the USD the BUY moved, so the cash balances on every day are identical to the original ledger, and the exclusion can never trigger `negative_cash` (cash checks are end of day, so row order within the day does not matter).
+- ADJUST is not an external flow (UI decision 2): an excluded BUY booked as ADJUST would show as a loss. Not usable.
+- A new row type would need its own branch in every consumer of `RowType`. DEPOSIT and WITHDRAW already flow through TWR, XIRR, decomposition and the benchmark.
+
+Engine changes this needs (small, both in existing code paths):
+1. `valuation.ts` `cashDeltas`: DEPOSIT and WITHDRAW move `r.currency` instead of always SGD. For SGD rows nothing changes.
+2. `valuation.ts` day loop: a USD DEPOSIT or WITHDRAW adds its signed amount to the USD amount that is already converted at the day's rate in step 5 (today `openingUsd`), instead of to `netFlow` directly. So `netFlowSgd` holds the SGD equivalent.
+3. `compute.ts`, explanation deposits: only SGD DEPOSIT rows count as the investor's deposits (`r.currency === 'SGD'`). On an OPENING date, the opening value is that day's `netFlowSgd` less all of that day's DEPOSIT and WITHDRAW rows, USD rows converted at that point's `fxRate`, so excluded flows on the opening date are not counted as opening value.
+
+The parser is unchanged: a file with a USD DEPOSIT or WITHDRAW is still rejected with `flow_currency`. USD flows only come from `excludeTickers`.
+
+### 16.3 Share of what was bought
+
+`shareBought = excludedBought / totalBought`, over the full combined ledger before exclusion:
+- `excludedBought` = for every BUY of an excluded ticker, `(amount + fees) x rate(d)`; plus for every OPENING position row of an excluded ticker, `amount x rate(d)` (the row amount is quantity x prior price).
+- `totalBought` = the same sums over every BUY and every OPENING position row of any ticker.
+
+These are gross figures: sales and dividends do not reduce either side, and deposits and opening cash do not enter. Opening positions use the row amount, not the close the engine values them at, so the share needs no price for the excluded ticker. The share is always between 0 and 1 (resolved question 16.9.1).
+
+Display: whole percent, `D` rounding (ROUND_HALF_EVEN); a share above 0 that rounds to 0 shows as `less than 1%`.
+
+### 16.4 Worked example (golden for Task 31)
+
+Excluded ticker `ZZZ`; `AAPL` stays. ECB rate 1.35 on 2024-01-02 and 1.34 from 2024-03-01 (carried after). AAPL closes: 200 on 2024-01-02, 220 on 2024-03-28. End date 2024-03-31.
+
+```
+date,type,ticker,quantity,price,currency,amount,fees
+2024-01-02,DEPOSIT,,,,SGD,2754,0          line 2
+2024-01-02,FX,USD,2040,,SGD,2754,0        line 3
+2024-01-02,BUY,AAPL,5,200,USD,1000,0      line 4
+2024-01-02,BUY,ZZZ,10,100,USD,1000,2      line 5
+2024-03-01,SELL,ZZZ,4,110,USD,440,2       line 6
+2024-03-15,DIVIDEND,ZZZ,,,USD,10,1.5      line 7
+```
+
+`excludeTickers(rows, ['ZZZ'])` returns lines 2 to 4 unchanged and:
+- line 5: `2024-01-02, WITHDRAW, USD, amount 1002`
+- line 6: `2024-03-01, DEPOSIT, USD, amount 438`
+- line 7: `2024-03-15, DEPOSIT, USD, amount 8.5`
+
+Cash, end of day: USD 38.00 on 2024-01-02 (2040 - 1000 - 1002), 476.00 on 2024-03-01, 484.50 from 2024-03-15; SGD 0 throughout. Same as the original ledger.
+
+Net flows in SGD: 2024-01-02 `2754 - 1002 x 1.35 = 1401.30`; 2024-03-01 `438 x 1.34 = 586.92`; 2024-03-15 `8.5 x 1.34 = 11.39`. Net invested at the end: 1999.61.
+
+End value: `(484.50 + 5 x 220) x 1.34 = 2123.23` SGD; holdings `{ AAPL: 5 }`. First-day return 0 (value 1401.30 equals the first-day flow under start-of-day timing). No dividends in `result.dividends`; `decomposition.dividends` = 0. Explanation deposits: one SGD 2754 deposit on 2024-01-02.
+
+Share: `excludedBought = 1002 x 1.35 = 1352.70`, `totalBought = (1000 + 1002) x 1.35 = 2702.70`, share `= 0.5004995005`, shown as `50%`.
+
+XIRR investor flows: -1401.30 on 2024-01-02, -586.92 on 2024-03-01, -11.39 on 2024-03-15, +2123.23 on 2024-03-31.
+
+### 16.5 Data flow
+
+`runUpload(input, fetchFn, timing, exclude = [])`:
+1. `combineFiles` as today.
+2. `ledgerTickers` and `fetchPrices` as today (excluded tickers are still asked for; the API lists them as unavailable).
+3. Availability: unavailable tickers that are in `exclude` are dropped from the two availability rejections. Anything left still rejects. Each availability rejection now carries `tickers: string[]` (sorted), so the UI does not parse messages.
+4. If `exclude` is not empty: `rows = excludeTickers(combined.rows, exclude)` and each later statement's `openings[i].rows = excludeTickers(openings[i].rows, exclude)` (drops the excluded opening positions, so reconciliation neither checks them nor needs their prices); openings left with no rows are dropped.
+   If the earliest file has no rows left after exclusion (so neither valuation nor reconciliation has a starting point), the upload is rejected with `nothing_left` and no `tickers`, so no Continue button appears.
+5. `reconcile` and `compute` run on the reduced ledger, so valuation, TWR, XIRR, decomposition, dividends, the adjusted-close panel (`input.ledger`) and the benchmark (`useBenchmark(shown.input)`, which reads `valueDaily(...).netFlowSgd` in `shadowLedger`) all see the reduced cash flows with no further change. Checked in `benchmark.ts`: `shadowLedger` builds its DEPOSIT and WITHDRAW rows from `netFlowSgd`, so the excluded buys are benchmark withdrawals and the excluded sales and dividends are benchmark deposits.
+6. The result outcome gains `excluded: { tickers: string[]; share: Decimal } | null`, where `tickers` is `exclude` limited to tickers in the ledger, sorted, and `share = excludedShare(combined.rows, tickers, fx)` (full ledger; rate = latest `fx` point on or before the row date, the same lookup as valuation, because a dropped opening position can be dated before the reduced ledger's first day).
+
+Combining several statements works because exclusion runs on the combined ledger and on the later openings, before reconciliation.
+
+### 16.6 UI copy
+
+Lists: one ticker `ZZZ`; two `ZZZ and YYY`; three or more `XXX, YYY and ZZZ` (sorted). Share as in 16.3.
+
+Rejection screen (`Rejections.tsx`), when every rejection carries `tickers` (only availability rejections do): the list, `No results were calculated.`, the existing `Request these tickers` button (unsupported only), then:
+- line: `You can see a report for the rest of the portfolio instead. Buying these holdings then counts as money taken out, and their sales and dividends as money put in.`
+- button, `.button secondary`: `Continue without these holdings`. It excludes the union of the rejections' `tickers`.
+
+Result title (Analyse): `SGD 1,999.61 in, 2 Jan 2024 to 31 Mar 2024, excluding ZZZ, 50% of what was bought`. The SGD figure stays the measured portfolio's net money in.
+
+Notice under the explanation sentence (first item of the hero notices):
+- one ticker: `This report leaves out ZZZ. Money spent buying it counts as taken out of the portfolio, and money from its sales and dividends counts as put in.`
+- several: `This report leaves out ZZZ and YYY. Money spent buying them counts as taken out of the portfolio, and money from their sales and dividends counts as put in.`
+
+Decomposition section, after the intro: `These figures leave out ZZZ.`
+Dividends section, after the intro: `Dividends from ZZZ are not counted.`
+
+Share card and PDF never name a ticker (spec 15.2, 15.3, assumption 15.5.8), so they name the count:
+- card: the explanation text drawn on the card is followed by ` Excludes 1 holding, 50% of what was bought.` (`2 holdings` for several), inside the existing three-line step-down.
+- PDF: a line after the date range: `Excludes 1 holding, 50% of what was bought.`
+
+### 16.7 Saved ledger
+
+The saved ledger remembers the choice: `honest-returns:ledger:v1` gains `exclude: string[]` (empty when nothing is excluded). `loadLedger` reads a missing `exclude` as `[]`, so earlier saves stay valid; a non-array or non-string entry makes the save invalid (`null`). On load, `runUpload` runs with the saved list, so a reload shows the same partial report with the same labels, even if one of the tickers has since gained prices.
+
+Why not "drop the save when exclusions exist": the file set alone no longer decides the report, and dropping would leave an older full save in place that a reload would then show instead of the report the user just chose (failed uploads do not clear). Remembering the list is one field and keeps "reload shows what you last saw".
+
+The timing toggle keeps the exclusion. `Choose another file` and `Add another file` start with no exclusion; the user opts in again if the new set has unavailable tickers.
+
+### 16.8 Unchanged
+
+Parser and `flow_currency`; the canonical CSV; importers; the API and the Worker; TWR, XIRR, decomposition and benchmark formulas; reconciliation rules and tolerances; rejection messages; `Request these tickers`; the 50-ticker limit (counted before exclusion); the Home sample; the Methodology page; uploads with nothing unavailable (no `excluded`, no labels).
+
+Visible side effects, accepted: the money-in line on the chart steps down on excluded buy dates and those dates carry the withdrawal arrow; the benchmark section's flows include the excluded buys and sales.
+
+### 16.9 Open questions
+
+1. Resolved 2026-10-24: the share is excluded gross buys and opening positions over all gross buys and opening positions (16.3). The earlier draft divided by gross money in, which exceeded 100% when the excluded ticker was bought with sale proceeds or bought, sold and bought again.
+
+### 16.10 Risks
+
+- FX conversions made to fund excluded buys stay in the measured portfolio, so their conversion cost or gain is in its return. Small for a minority holding; large in relative terms when most of the money went to the excluded ticker.
+- Excluding most of a portfolio leaves a small base; daily returns on it can be large and `twr_negative_base` can fire on days when an excluded buy takes most of the value.
+- A later statement whose only opening rows are excluded positions (no opening cash rows) is dropped from reconciliation, so its cash is not checked.

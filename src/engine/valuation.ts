@@ -20,9 +20,9 @@ const reject = (line: number | null, code: Rejection['code'], message: string): 
 function cashDeltas(r: LedgerRow): Partial<Record<Ccy, Decimal>> {
   switch (r.type) {
     case 'DEPOSIT':
-      return { SGD: r.amount };
+      return { [r.currency]: r.amount };
     case 'WITHDRAW':
-      return { SGD: r.amount.neg() };
+      return { [r.currency]: r.amount.neg() };
     case 'FX':
       return { [r.currency]: r.amount.plus(r.fees).neg(), [r.ticker as Ccy]: r.quantity! };
     case 'BUY':
@@ -89,14 +89,14 @@ export function valueDaily(input: ComputeInput): ValuationResult {
     const today: LedgerRow[] = [];
     while (rowIdx < ledger.length && ledger[rowIdx].date === d) today.push(ledger[rowIdx++]);
     let netFlow = D(0);
-    let openingUsd = D(0); // opening positions and USD cash, valued at today's close and rate below
+    // Opening positions, USD cash and USD flows (excluded tickers, spec 16.2), converted at today's rate below.
+    let usdFlow = D(0);
     for (const r of today) {
       for (const [c, v] of Object.entries(cashDeltas(r)) as [Ccy, Decimal][]) cash[c] = cash[c].plus(v);
-      if (r.type === 'DEPOSIT') netFlow = netFlow.plus(r.amount);
-      if (r.type === 'WITHDRAW') netFlow = netFlow.minus(r.amount);
-      if (r.type === 'OPENING' && !r.ticker) {
-        if (r.currency === 'SGD') netFlow = netFlow.plus(r.amount);
-        else openingUsd = openingUsd.plus(r.amount);
+      if (r.type === 'DEPOSIT' || r.type === 'WITHDRAW' || (r.type === 'OPENING' && !r.ticker)) {
+        const signed = r.type === 'WITHDRAW' ? r.amount.neg() : r.amount;
+        if (r.currency === 'SGD') netFlow = netFlow.plus(signed);
+        else usdFlow = usdFlow.plus(signed);
       }
       if (r.type === 'BUY' || r.type === 'SELL' || (r.type === 'OPENING' && r.ticker)) {
         const t = r.ticker!;
@@ -107,7 +107,7 @@ export function valueDaily(input: ComputeInput): ValuationResult {
           if (barIdx[t] < 0) return reject(r.line, 'no_market_data', `No ${t} price on or before ${d}.`);
         }
         holdings[t] = r.type === 'SELL' ? holdings[t].minus(r.quantity!) : holdings[t].plus(r.quantity!);
-        if (r.type === 'OPENING') openingUsd = openingUsd.plus(r.quantity!.times(prices[t][barIdx[t]].close));
+        if (r.type === 'OPENING') usdFlow = usdFlow.plus(r.quantity!.times(prices[t][barIdx[t]].close));
       }
     }
 
@@ -139,7 +139,7 @@ export function valueDaily(input: ComputeInput): ValuationResult {
       // A bar always exists: a holding starts with a BUY on a bar date or an OPENING row checked above.
       usd = usd.plus(q.times(prices[t][barIdx[t]].close));
     }
-    netFlow = netFlow.plus(openingUsd.times(rate.sgdPerUsd)); // spec decision 2: opening value is an inflow
+    netFlow = netFlow.plus(usdFlow.times(rate.sgdPerUsd)); // spec decision 2: opening value is an inflow
     netInvested = netInvested.plus(netFlow);
     series.push({
       date: d,

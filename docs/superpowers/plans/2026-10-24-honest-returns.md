@@ -544,6 +544,75 @@ Blocked until Task 15 (IBKR importer with `OPENING` rows) is merged.
 - [ ] **Step 4: Verify.** Tests PASS; typecheck and build pass. Owen runs two of his own consecutive IBKR statements locally (never committed) and reports whether cash reconciles within 1.00 (spec 15.6 question 2).
 - [ ] **Step 5: Commit** `feat: combine ibkr statements with opening balance reconciliation`.
 
+### Task 31: Engine `excludeTickers` and USD flow rows (spec 16.2 to 16.4)
+
+**Files:**
+- Create: `src/engine/exclude.ts`
+- Modify: `src/engine/valuation.ts` (`cashDeltas` for DEPOSIT and WITHDRAW use `r.currency`; USD DEPOSIT and WITHDRAW added to the USD amount converted at the day's rate, today `openingUsd`, with its comment updated), `src/engine/compute.ts` (explanation deposits: SGD DEPOSIT rows only; opening-day residual subtracts USD flow rows at the point's `fxRate`), `src/engine/types.ts` (comment: USD DEPOSIT and WITHDRAW come only from `excludeTickers`) (no `index.ts` change: `upload.ts` imports engine modules directly)
+- Test: `src/engine/exclude.test.ts`
+
+**Interfaces:**
+- Produces: `excludeTickers(ledger: LedgerRow[], tickers: string[]): LedgerRow[]`; `excludedShare(ledger: LedgerRow[], tickers: string[], fx: FxPoint[]): Decimal`. The rate for day `d` is `fx.findLast((p) => p.date <= d)!.sgdPerUsd`, the same lookup valuation uses. Not read from the series: an excluded opening position can be dated before the reduced ledger's first day (review finding).
+
+- [ ] **Step 1: Write failing tests** on the spec 16.4 ledger, inline in the test file (CSV through `parseCsv`, AAPL bars 2024-01-02 close 200 and 2024-03-28 close 220, fx 2024-01-02 1.35 and 2024-03-01 1.34, endDate 2024-03-31):
+  - `excludeTickers(rows, ['ZZZ'])` returns lines 2 to 4 unchanged and the three synthetic rows of 16.4 exactly (type, currency USD, amount 1002, 438 and 8.5, `ticker`, `quantity`, `price` null, `fees` 0, same `line`).
+  - `excludeTickers(rows, ['NOPE'])` returns the rows unchanged; an OPENING `ZZZ` position row is dropped and an OPENING USD cash row is kept.
+  - `compute` on the reduced ledger: end-of-day USD cash 38 on 2024-01-02, 476 on 2024-03-01, 484.5 on 2024-03-31; SGD cash 0 on every day; no rejection; `netFlowSgd` 1401.30, 586.92, 11.39 on the three dates; last `netInvestedSgd` 1999.61; last `valueSgd` 2123.23; holdings `{ AAPL: 5 }`; first `dailyReturn` 0; `dividends` empty; `decomposition.dividends` 0.
+  - `shadowLedger({ ...reducedInput, flowTiming: 'end' }, 'AAPL')`: its SGD DEPOSIT rows are 1401.30, 586.92 and 11.39 on the three dates (the benchmark sees the reduced flows).
+  - `excludedShare(rows, ['ZZZ'], fx).toFixed(10)` is `0.5004995005`; with an OPENING ZZZ position row (10 at 100 USD) and an OPENING SGD cash row added on the first date, numerator and denominator both include `1000 x 1.35` and the cash row changes neither.
+  - A file row `DEPOSIT` in USD is still rejected by `parseCsv` with `flow_currency` (existing test, re-run).
+- [ ] **Step 2:** Run `npx vitest run --project unit src/engine/exclude.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement `exclude.ts` per spec 16.2 and 16.3, and the three engine changes listed in 16.2. No new row type.
+- [ ] **Step 4: Verify.** `npx vitest run --project unit src/engine` PASS (golden A to F unchanged), `npm run typecheck` and `npm run build` pass.
+- [ ] **Step 5: Commit** `feat: exclude tickers as cash flows in the engine`.
+
+### Task 32: `runUpload` exclusion and the saved choice (spec 16.5, 16.7)
+
+**Files:**
+- Modify: `src/app/upload.ts` (`exclude` parameter, filtered availability, `tickers` on availability rejections, exclusion before `reconcile`, `excluded` on the result), `src/engine/types.ts` (`Rejection` gains optional `tickers?: string[]`), `src/app/saved.ts` (`exclude` field), `src/app/RequestTickers.tsx` (remove `unsupportedTickers`, the message parser its ponytail comment named for replacement), `src/app/Rejections.tsx` (pass `r.tickers!` to `RequestTickers`)
+- Test: `src/app/upload.test.ts` (update the expectation of the existing "unavailable tickers" test to include `tickers: ['XYZ', 'ZZZ']` and `tickers: ['ABC', 'QRS']`; add tests), `src/app/saved.test.ts`
+
+**Interfaces:**
+- Produces: `runUpload(input, fetchFn?, timing?, exclude: string[] = [])`; result outcome `excluded: { tickers: string[]; share: Decimal } | null`; `SavedLedger.exclude: string[]`; `saveLedger(storage, { files, broker, timing, exclude })`.
+
+- [ ] **Step 1: Write failing tests.**
+  - The 16.4 CSV with a stub body listing `ZZZ` as `no_data_yet`: without `exclude`, rejected with `prices_not_loaded` and `tickers: ['ZZZ']`; with `exclude: ['ZZZ']`, a result with `excluded.tickers` `['ZZZ']`, `excluded.share.toFixed(10)` `0.5004995005`, last `netInvestedSgd` 1999.61.
+  - `exclude: ['ZZZ']` when `YYY` is also unavailable: rejected, and the rejection names `YYY` only.
+  - No unavailable tickers and empty `exclude`: `excluded` is null and Golden A numbers are unchanged.
+  - Two canonical files split on 2024-03-01, the second opening with OPENING `AAPL 5`, OPENING `ZZZ 10` (the holding before that day's sale) and OPENING USD cash 38: with `exclude: ['ZZZ']` the result has the same numbers as the single file, no `reconcile_position` and no cash notice.
+  - With `exclude: ['ZZZ']`, an engine rejection (an AAPL oversell added to the file) still maps back to that row's own line.
+  - `saved.test.ts`: `exclude` round-trips; a stored v1 value without `exclude` loads with `exclude: []`; `exclude: 'ZZZ'` or `[1]` loads as null.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/upload.test.ts src/app/saved.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement per spec 16.5 and 16.7. Exclusion applies to `combined.rows` and to each `combined.openings[i].rows` before `reconcile`; openings left empty are dropped.
+- [ ] **Step 4: Verify.** Tests PASS; `npx vitest run --project unit src/app` PASS; `npm run typecheck` and `npm run build` pass.
+- [ ] **Step 5: Commit** `feat: run uploads without excluded tickers and save the choice`.
+
+### Task 33: Continue button and partial-report labels (spec 16.6, 16.7)
+
+**Files:**
+- Modify: `src/app/Rejections.tsx` (line and `Continue without these holdings` button, `onContinue?: (tickers: string[]) => void`), `src/app/App.tsx` (`check(files, timing, picked, saved, exclude = [])`; saved load passes `saved.exclude`; save passes `exclude`; timing toggle passes `file.out.excluded?.tickers ?? []`; new or added files pass none), `src/app/Analyse.tsx` (`onExclude` prop to `Rejections`; title suffix; notice first in the hero notices; decomposition and dividends lines; `excluded` to `ShareButtons` and `PrintButton`), `src/app/format.ts` (`listTickers(tickers)`, `formatShare(share)`), `src/app/shareCard.ts` (`cardData(result, includeSgd, excluded?)` appends the count sentence to `explanation`), `src/app/ShareButtons.tsx`, `src/app/PrintButton.tsx`, `src/app/PrintStatement.tsx` (`excluded` prop, one line after the date range)
+- Test: `src/app/format.test.ts`, `src/app/shareCard.test.ts` (pure functions only; no DOM tests for components)
+
+**Interfaces:**
+- Consumes: `UploadOutcome['result'].excluded`, `Rejection.tickers`.
+- Produces: `listTickers(t: string[]): string`; `formatShare(d: Decimal): string`; `cardData(result, includeSgd, excluded?: { tickers: string[]; share: Decimal } | null)`.
+
+- [ ] **Step 1: Write failing tests.**
+  - `listTickers`: `['ZZZ']` gives `ZZZ`; two give `YYY and ZZZ`; three give `XXX, YYY and ZZZ`.
+  - `formatShare`: `0.5004995005` gives `50%`; `0.004` gives `less than 1%`; `0` gives `0%`; `1` gives `100%`.
+  - `cardData` with `excluded` of one ticker: `explanation` ends with ` Excludes 1 holding, 50% of what was bought.`; with two, `2 holdings`; no field contains the ticker; without `excluded` the existing expectations are unchanged.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/format.test.ts src/app/shareCard.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement the copy of spec 16.6 exactly and the App wiring of 16.7.
+- [ ] **Step 4: Verify.** Tests PASS; `npm run typecheck` and `npm run build` pass. Screenshot checks in `npm run dev`, with the 16.4 CSV and a stub or real ticker with no data, at 360 px and 1280 px:
+  1. Rejection screen: list, `No results were calculated.`, the request button (unsupported case), the new line and the secondary `Continue without these holdings` button; both buttons have hover and focus-visible states.
+  2. Result after continuing: title ends `excluding ZZZ, 50% of what was bought` and wraps cleanly at 360 px; the exclusion notice sits first under the explanation.
+  3. Decomposition and dividends sections show their one-line notices.
+  4. Downloaded card, both sizes: the exclusion sentence is inside the three explanation lines, no ticker drawn.
+  5. Print preview: still one A4 page; the `Excludes 1 holding` line under the date range; no ticker.
+  6. Reload: the same partial report and labels return from the saved ledger.
+  7. Timing toggle keeps the exclusion; `Choose another file` with a clean file shows no labels.
+- [ ] **Step 5: Commit** `feat: continue without unavailable holdings with partial report labels`.
+
 ---
 
 ## Incidental complexity (accepted, flagged)
@@ -557,3 +626,4 @@ Blocked until Task 15 (IBKR importer with `OPENING` rows) is merged.
 - Share card: a fake canvas context in tests, and a font-size step-down loop because `ctx.fontStretch` is not supported everywhere.
 - PDF: an off-screen second chart in light colours for the print image, and the `buildChart` refactor it needs.
 - Combining IBKR statements: one extra `valueDaily` pass per later statement for reconciliation (ceiling: files x days).
+- Partial reports (Tasks 31 to 33): `Rejection.tickers` replaces parsing tickers back out of the rejection message, because a second consumer (the continue button) now needs them.

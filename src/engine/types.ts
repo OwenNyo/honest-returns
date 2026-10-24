@@ -13,7 +13,7 @@ export interface LedgerRow {
   ticker: string | null;
   quantity: Decimal | null;
   price: Decimal | null;
-  currency: Ccy;
+  currency: Ccy; // USD on DEPOSIT and WITHDRAW only from excludeTickers (spec 16.2); files reject it
   amount: Decimal;
   fees: Decimal; // 0 when empty; on DIVIDEND, empty means 30% of amount (tax withheld)
 }
@@ -51,13 +51,14 @@ export type RejectionCode =
   | 'wrong_column_count' | 'bad_date' | 'bad_type' | 'bad_currency' | 'bad_number' | 'missing_field'
   | 'unexpected_field' | 'not_positive' | 'negative_fees' | 'flow_currency' | 'trade_currency' | 'fx_pair'
   | 'bad_ticker' | 'amount_mismatch' | 'fees_on_flow'
-  | 'unsupported_tickers' | 'prices_not_loaded' | 'too_many_tickers'
+  | 'unsupported_tickers' | 'prices_not_loaded' | 'too_many_tickers' | 'nothing_left'
   | 'after_as_of' | 'no_market_data' | 'not_trading_day' | 'negative_cash' | 'oversell'
   | 'dividend_unmatched' | 'dividend_duplicate'
   | 'benchmark_unavailable' // spec 10.14: the benchmark is not shown
   | 'overlapping_files' | 'reconcile_position' | 'reconcile_cash'; // spec 15.4: combining files
 // file: set only when several files are combined (spec 15.4); the engine never sets it.
-export interface Rejection { line: number | null; code: RejectionCode; message: string; file?: string }
+// tickers: set only on unsupported_tickers and prices_not_loaded (spec 16.5), sorted.
+export interface Rejection { line: number | null; code: RejectionCode; message: string; file?: string; tickers?: string[] }
 
 export interface Warning {
   code: 'fx_carried' | 'twr_negative_base' | 'xirr_multiple_roots' | 'dividend_on_ex_date';

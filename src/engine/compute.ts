@@ -30,13 +30,20 @@ export function compute(input: ComputeInput): ComputeResult {
   }
   const t = annualise(twr(series), daysBetween(first, input.endDate));
   const yearReturns = yearlyTwr(series);
-  const deposits = input.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
+  // Only SGD deposits are the investor's; USD flows come from excluded tickers (spec 16.2).
+  const deposits = input.ledger
+    .filter((r) => r.type === 'DEPOSIT' && r.currency === 'SGD')
+    .map((r) => ({ date: r.date, amount: r.amount }));
   // The opening value is an inflow (decision 2): that day's net flow less its DEPOSIT and WITHDRAW rows.
   for (const date of new Set(input.ledger.filter((r) => r.type === 'OPENING').map((r) => r.date))) {
+    const point = series.find((p) => p.date === date)!;
     const rowFlow = input.ledger
       .filter((r) => r.date === date && (r.type === 'DEPOSIT' || r.type === 'WITHDRAW'))
-      .reduce((s, r) => (r.type === 'DEPOSIT' ? s.plus(r.amount) : s.minus(r.amount)), D(0));
-    deposits.push({ date, amount: series.find((p) => p.date === date)!.netFlowSgd.minus(rowFlow) });
+      .reduce((s, r) => {
+        const sgd = r.currency === 'SGD' ? r.amount : r.amount.times(point.fxRate);
+        return r.type === 'DEPOSIT' ? s.plus(sgd) : s.minus(sgd);
+      }, D(0));
+    deposits.push({ date, amount: point.netFlowSgd.minus(rowFlow) });
   }
   const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
   const { dividends } = valued;

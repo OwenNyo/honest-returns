@@ -87,3 +87,15 @@ The Verification, Out of scope and Golden tests sections are removed from the Me
 ## Benchmark line in its own section (Owen, 2026-10-24)
 
 The fund's dotted value line moves from the hero chart to a chart in the `Against a single fund` section, next to the portfolio value: the hero chart was crowded, and the comparison belongs where the fund's figures are.
+## Partial reports (Owen, 2026-10-24)
+
+Spec section 16, Tasks 31 to 33. When an upload has tickers with no price data, the rejection screen adds `Continue without these holdings`; nothing is computed until the user picks it.
+
+1. Exclusion happens on the ledger before reconciliation and compute (`excludeTickers` in `src/engine/exclude.ts`), so TWR, XIRR, decomposition, dividends, the adjusted-close panel and the benchmark all see the reduced flows. The benchmark needs no change: `shadowLedger` reads `netFlowSgd`.
+2. An excluded BUY becomes a USD WITHDRAW of `amount + fees`; an excluded SELL or DIVIDEND becomes a USD DEPOSIT of `amount - fees`; excluded OPENING positions are dropped. Cash balances stay identical to the original ledger, so the exclusion cannot cause `negative_cash`. No new row type. Files still may not contain USD flows (`flow_currency`).
+3. The engine converts USD flows at the day's valuation rate (latest ECB point on or before the day), the rate it already uses for opening values. Only SGD DEPOSIT rows count as the investor's deposits in the explanation sentence.
+4. Share of what was bought = excluded gross buys plus excluded opening positions (row amount) over all gross buys plus all opening positions, rates from the series. Whole percent, always 0 to 100%. The explorer's draft divided by gross money in, which could exceed 100% with recycled sale proceeds; replaced without consulting Owen as it changes only the label's denominator.
+5. Labels: screen copy names the tickers; the share card and PDF give the count only (`Excludes 1 holding, 50% of what was bought.`), keeping the no-ticker rule of spec 15.2 and 15.3.
+6. Saved ledger remembers the list (`exclude: string[]` in `honest-returns:ledger:v1`, missing reads as empty). A reload shows the same partial report. The timing toggle keeps the exclusion; a new or added file starts without one.
+7. Availability rejections carry `tickers: string[]`; the message parser in `RequestTickers.tsx` is removed.
+8. Review finding "empty reduced ledger", resolved: when the earliest file has no rows left after exclusion, the upload rejects with `nothing_left` instead of crashing in valuation or reconciliation.
