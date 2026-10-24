@@ -326,10 +326,10 @@ describe('combineFiles, moomoo files', () => {
     ]);
   });
 
-  test('a plain CSV with a USD DEPOSIT is still rejected with flow_currency', () => {
-    expect(rejectedBy([{ name: 'usd.csv', text: csv('2024-01-02,DEPOSIT,,,,USD,1000,0') }])).toEqual([
-      expect.objectContaining({ line: 2, code: 'flow_currency' }),
-    ]);
+  // Spec 18.1.1: plain files accept USD DEPOSIT and WITHDRAW.
+  test('a plain CSV with a USD DEPOSIT combines', () => {
+    const row = combined([{ name: 'usd.csv', text: csv('2024-01-02,DEPOSIT,,,,USD,1000,0') }]).rows[0];
+    expect([row.type, row.currency]).toEqual(['DEPOSIT', 'USD']);
   });
 
   test('a moomoo file and a canonical file with separate periods combine', () => {

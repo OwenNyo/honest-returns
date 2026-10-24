@@ -136,9 +136,9 @@ export function importIbkr(text: string, known: Record<string, string> = {}): Ib
   for (const r of of('Deposits & Withdrawals')) {
     const amount = num(r.f.Amount);
     const type = amount.isNeg() ? 'WITHDRAW' : 'DEPOSIT';
-    if (r.f.Currency !== 'SGD') reject(r, 'flow_currency', 'DEPOSIT and WITHDRAW must be in SGD.');
+    if (r.f.Currency !== 'SGD' && r.f.Currency !== 'USD') reject(r, 'flow_currency', 'DEPOSIT and WITHDRAW must be in SGD or USD.');
     else if (amount.isZero()) count(r, 'skipped');
-    else emit(r, r.f['Settle Date'], type, null, null, null, 'SGD', amount.abs(), '0');
+    else emit(r, r.f['Settle Date'], type, null, null, null, r.f.Currency, amount.abs(), '0');
   }
 
   // Dividends joined to withholding by symbol and date; several rows for one key are summed (reversals net out).

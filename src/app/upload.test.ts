@@ -168,6 +168,19 @@ test('without exclude, an unavailable ticker rejects with prices_not_loaded carr
   });
 });
 
+// Task 39, spec 18.1.1: the ZZZ cash flows written as USD DEPOSIT and WITHDRAW rows in a plain file.
+test('the spec 16.4 ledger written with USD flows computes from a plain file', async () => {
+  const csv = [
+    HEADER,
+    ...PARTIAL.slice(1, 4),
+    '2024-01-02,WITHDRAW,,,,USD,1002,0',
+    '2024-03-01,DEPOSIT,,,,USD,438,0',
+    '2024-03-15,DEPOSIT,,,,USD,8.5,0',
+  ].join('\n');
+  const last = result(await runUpload(csv, stubFetch(partialBody([])))).result.series.at(-1)!;
+  expect([last.netInvestedSgd.toFixed(2), last.valueSgd.toFixed(2)]).toEqual(['1999.61', '2123.23']);
+});
+
 test('with exclude ZZZ, the result names ZZZ as excluded', async () => {
   const out = result(await runUpload(PARTIAL.join('\n'), stubFetch(partialBody()), 'start', ['ZZZ']));
   expect(out.excluded?.tickers).toEqual(['ZZZ']);

@@ -248,19 +248,11 @@ describe('importMoomoo row checks (spec 17.1.7)', () => {
   });
 });
 
-describe('importMoomoo output and parseCsv (spec 17.1.8)', () => {
-  test('the output parses with usdFlows, with three USD DEPOSIT rows', () => {
-    const out = parseCsv(importMoomoo(FIXTURE).csv, { usdFlows: true });
+describe('importMoomoo output and parseCsv (spec 17.1.8, 18.1.1)', () => {
+  test('the output parses as a plain CSV, with three USD DEPOSIT rows', () => {
+    const out = parseCsv(importMoomoo(FIXTURE).csv);
     expect(out.rejected).toEqual([]);
     expect(out.rows.filter((r) => r.type === 'DEPOSIT' && r.currency === 'USD')).toHaveLength(3);
-  });
-
-  test('without usdFlows the output is rejected on lines 3, 6 and 10 with flow_currency', () => {
-    expect(parseCsv(importMoomoo(FIXTURE).csv).rejected.map((r) => [r.line, r.code])).toEqual([
-      [3, 'flow_currency'],
-      [6, 'flow_currency'],
-      [10, 'flow_currency'],
-    ]);
   });
 });
 
@@ -273,7 +265,7 @@ describe.skipIf(realCsv === undefined)('importMoomoo on a real export (needs loc
     expect(importMoomoo(realCsv).rejected).toEqual([]);
   });
 
-  test('its output parses with usdFlows and no rejections', () => {
-    expect(parseCsv(importMoomoo(realCsv).csv, { usdFlows: true }).rejected).toEqual([]);
+  test('its output parses with no rejections', () => {
+    expect(parseCsv(importMoomoo(realCsv).csv).rejected).toEqual([]);
   });
 });

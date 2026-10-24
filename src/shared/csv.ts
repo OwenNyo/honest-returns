@@ -56,8 +56,7 @@ const fileReject = (code: RejectionCode, message: string) => ({
   rejected: [{ line: null, code, message }],
 });
 
-// usdFlows: a DEPOSIT or WITHDRAW in USD passes; only combineFiles sets it, for moomoo output (spec 17.1.8).
-export function parseCsv(text: string, { usdFlows = false }: { usdFlows?: boolean } = {}): { rows: LedgerRow[]; rejected: Rejection[] } {
+export function parseCsv(text: string): { rows: LedgerRow[]; rejected: Rejection[] } {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/);
   while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
   if (lines.length === 0) return fileReject('empty_file', 'The file has no data rows.');
@@ -70,7 +69,7 @@ export function parseCsv(text: string, { usdFlows = false }: { usdFlows?: boolea
   const rejected: Rejection[] = [];
   lines.slice(1).forEach((text, i) => {
     const line = i + 2;
-    const res = parseRow(text, line, usdFlows);
+    const res = parseRow(text, line);
     if ('code' in res) rejected.push({ line, ...res });
     else rows.push(res);
   });
@@ -78,7 +77,7 @@ export function parseCsv(text: string, { usdFlows = false }: { usdFlows?: boolea
 }
 
 // Returns the row, or the first failing check in spec 5.1 table order.
-function parseRow(text: string, line: number, usdFlows: boolean): LedgerRow | { code: RejectionCode; message: string } {
+function parseRow(text: string, line: number): LedgerRow | { code: RejectionCode; message: string } {
   const cells = text.split(',').map((c) => c.trim());
   if (cells.length !== 8) return { code: 'wrong_column_count', message: `Row has ${cells.length} columns; expected 8.` };
   const [date, rawType, rawTicker, quantityS, priceS, rawCurrency, amountS, feesS] = cells;
@@ -119,7 +118,6 @@ function parseRow(text: string, line: number, usdFlows: boolean): LedgerRow | { 
 
   const isFlow = type === 'DEPOSIT' || type === 'WITHDRAW';
   const isTrade = rule === 'BUY' || rule === 'SELL' || rule === 'DIVIDEND';
-  if (isFlow && currency !== 'SGD' && !usdFlows) return { code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD.' };
   if (isTrade && currency !== 'USD') return { code: 'trade_currency', message: `${type} must be in USD.` };
   if (type === 'FX' && ((ticker !== 'SGD' && ticker !== 'USD') || ticker === currency)) {
     return {

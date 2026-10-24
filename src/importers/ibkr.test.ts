@@ -56,6 +56,8 @@ const STATEMENT_LINES = [
   /* 47 */ 'Withholding Tax,Data,Total,,,-1.665,',
 ];
 const STATEMENT = STATEMENT_LINES.join('\n') + '\n';
+// STATEMENT with line 37 (the USD deposit) replaced.
+const withLine37 = (line: string) => STATEMENT_LINES.map((l, i) => (i === 36 ? line : l)).join('\n') + '\n';
 
 // Canonical rows without the line number, Decimals as strings, in a stable order.
 const plain = (r: LedgerRow) => ({
@@ -127,6 +129,8 @@ describe('importIbkr on a synthetic statement', () => {
         // SGD deposit and withdrawal.
         row('2026-02-01', 'DEPOSIT', null, null, null, 'SGD', '2000', '0'),
         row('2026-03-10', 'WITHDRAW', null, null, null, 'SGD', '100', '0'),
+        // USD deposit (spec 18.1.1).
+        row('2026-03-11', 'DEPOSIT', null, null, null, 'USD', '500', '0'),
         // Dividends joined to withholding by symbol and date: amount gross, fees |withholding|.
         row('2026-03-12', 'DIVIDEND', 'MSFT', null, null, 'USD', '4.55', '1.365'),
         row('2026-03-20', 'DIVIDEND', 'MSFT', null, null, 'USD', '1', '0.3'),
@@ -134,10 +138,26 @@ describe('importIbkr on a synthetic statement', () => {
     );
   });
 
-  test('a USD deposit is rejected with flow_currency on its statement line', () => {
-    expect(importIbkr(STATEMENT).rejected).toEqual([
-      { line: 37, code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD.' },
-    ]);
+  // Spec 18.1.1: USD deposits and withdrawals are emitted in USD; other currencies are still rejected.
+  test('a USD deposit is emitted as a USD DEPOSIT on its statement line', () => {
+    const out = importIbkr(STATEMENT);
+    expect(out.rejected).toEqual([]);
+    const csvLines = out.csv.split(/\r?\n/);
+    const i = csvLines.indexOf('2026-03-11,DEPOSIT,,,,USD,500,0');
+    expect(i).toBeGreaterThan(0);
+    expect(out.lines[i - 1]).toBe(37); // lines[k] is the statement line of csv line k + 2
+  });
+
+  test('a USD withdrawal is emitted as a USD WITHDRAW', () => {
+    const out = importIbkr(withLine37('Deposits & Withdrawals,Data,USD,2026-03-11,Disbursement Initiated by Owner,-120'));
+    expect(out.rejected).toEqual([]);
+    expect(out.csv.split(/\r?\n/)).toContain('2026-03-11,WITHDRAW,,,,USD,120,0');
+  });
+
+  test('a HKD deposit is still rejected with flow_currency', () => {
+    const out = importIbkr(withLine37('Deposits & Withdrawals,Data,HKD,2026-03-11,Electronic Fund Transfer,500'));
+    expect(out.rejected).toEqual([{ line: 37, code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD or USD.' }]);
+    expect(out.sections['Deposits & Withdrawals']).toEqual({ converted: 2, skipped: 0, rejected: 1 });
   });
 
   test('options trades are skipped with one notice giving the count', () => {
@@ -149,7 +169,7 @@ describe('importIbkr on a synthetic statement', () => {
   test('reports converted, skipped and rejected counts per section (Total and SubTotal rows not counted)', () => {
     const { sections } = importIbkr(STATEMENT);
     expect(sections['Trades']).toEqual({ converted: 4, skipped: 2, rejected: 0 });
-    expect(sections['Deposits & Withdrawals']).toEqual({ converted: 2, skipped: 0, rejected: 1 });
+    expect(sections['Deposits & Withdrawals']).toEqual({ converted: 3, skipped: 0, rejected: 0 });
     expect(sections['Dividends']).toMatchObject({ converted: 2, rejected: 0 });
   });
 

@@ -13,7 +13,7 @@ export interface LedgerRow {
   ticker: string | null;
   quantity: Decimal | null;
   price: Decimal | null;
-  currency: Ccy; // USD on DEPOSIT and WITHDRAW only from excludeTickers (spec 16.2); files reject it
+  currency: Ccy; // USD on DEPOSIT and WITHDRAW: from a file, moomoo funding or excludeTickers (spec 16.2, 18.1.1)
   amount: Decimal;
   fees: Decimal; // 0 when empty; on DIVIDEND, empty means 30% of amount (tax withheld)
 }

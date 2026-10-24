@@ -51,7 +51,7 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
       continue;
     }
     notices.push(...(imported?.notices ?? []));
-    const out = parseCsv(imported ? imported.csv : f.text, { usdFlows: !!moomoo });
+    const out = parseCsv(imported ? imported.csv : f.text);
     // Converted rows and their rejections point at the statement line, not the converted CSV line.
     const toStatement = <T extends { line: number | null }>(x: T): T =>
       imported && x.line !== null ? { ...x, line: imported.lines[x.line - 2] } : x;

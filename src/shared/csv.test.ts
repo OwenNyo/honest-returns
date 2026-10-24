@@ -176,7 +176,6 @@ describe('parseCsv row-level rejections', () => {
     ['unexpected_field', '2020-08-28,DEPOSIT,AAPL,,,SGD,100,0', 'ticker must be empty for DEPOSIT.'],
     ['not_positive', '2020-08-28,DEPOSIT,,,,SGD,0,0', 'amount must be greater than zero.'],
     ['negative_fees', '2020-08-28,BUY,AAPL,2,500,USD,1000,-1', 'fees cannot be negative.'],
-    ['flow_currency', '2020-08-28,DEPOSIT,,,,USD,100,0', 'DEPOSIT and WITHDRAW must be in SGD.'],
     ['trade_currency', '2020-08-28,BUY,AAPL,2,500,SGD,1000,0', 'BUY must be in USD.'],
     [
       'fx_pair',
@@ -266,9 +265,18 @@ describe('parseCsv OPENING rows', () => {
   });
 });
 
-// Spec 17.1.8: only combineFiles sets usdFlows, for moomoo output. A plain file keeps the SGD-only rule.
-test('a USD DEPOSIT in a plain file is still rejected with flow_currency', () => {
-  expect(parseCsv([HEADER, '2024-03-05,DEPOSIT,,,,USD,1501.99,0'].join('\n')).rejected).toEqual([
-    { line: 2, code: 'flow_currency', message: 'DEPOSIT and WITHDRAW must be in SGD.' },
+// Spec 18.1.1: plain files accept USD DEPOSIT and WITHDRAW; every other check stays.
+test('USD DEPOSIT and WITHDRAW rows in a plain file parse', () => {
+  const { rows, rejected } = parse('2024-01-02,DEPOSIT,,,,USD,100,0', '2024-01-03,WITHDRAW,,,,USD,40,0');
+  expect(rejected).toEqual([]);
+  expect(rows.map((r) => [r.type, r.currency, r.amount.toString()])).toEqual([
+    ['DEPOSIT', 'USD', '100'],
+    ['WITHDRAW', 'USD', '40'],
+  ]);
+});
+
+test('a USD DEPOSIT with fees is still rejected with fees_on_flow', () => {
+  expect(parse('2024-01-02,DEPOSIT,,,,USD,100,1').rejected).toEqual([
+    { line: 2, code: 'fees_on_flow', message: 'fees must be empty or 0 for DEPOSIT.' },
   ]);
 });

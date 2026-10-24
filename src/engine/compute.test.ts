@@ -135,7 +135,7 @@ const pbar = (date: string, close: string): PriceBar => ({ date, close: D(close)
 describe('explanationDeposits', () => {
   test("explanationDeposits counts USD deposits at the day's rate", () => {
     // Spec 17.1.9: the moomoo fixture's expected output, FX 1.35 carried.
-    const { rows, rejected } = parseCsv(MOOMOO_CSV, { usdFlows: true });
+    const { rows, rejected } = parseCsv(MOOMOO_CSV);
     if (rejected.length) throw new Error('moomoo output invalid: ' + JSON.stringify(rejected));
     const res = ok({
       ledger: rows,
