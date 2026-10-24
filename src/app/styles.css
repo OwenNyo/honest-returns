@@ -320,7 +320,7 @@ a {
 .hero-side {
   background: var(--binding);
   box-shadow: 0 0 0 100vmax var(--binding);
-  clip-path: inset(0 -100vmax -100vmax); /* also fills to the bottom of the page */
+  clip-path: inset(0 -100vmax); /* content follows the panel on Home and Analyse */
   padding: calc(var(--space) * 1.25) 0;
   margin-top: var(--space);
 }
@@ -554,6 +554,7 @@ a {
   color: var(--ink);
   font-weight: 700;
   border-radius: 2px;
+  font-family: var(--sans);
   text-decoration: none;
   cursor: pointer;
 }
@@ -655,4 +656,121 @@ a {
   align-items: center;
   min-height: 44px;
   color: var(--faded);
+}
+
+/* Home story (spec 15.1.4): scenes separated by space, prose left and rows right on desktop. */
+.scene {
+  display: grid;
+  gap: var(--space);
+  margin-top: calc(var(--space) * 3);
+}
+.scene h2 {
+  font-size: var(--step-3);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.scene-prose {
+  display: grid;
+  gap: 1rem;
+  font-family: var(--serif);
+  font-size: var(--step-1);
+  line-height: 1.6;
+  max-width: 34em;
+}
+.twr-term {
+  color: var(--pencil-blue);
+  font-family: var(--sans);
+  font-weight: 700;
+}
+.xirr-term {
+  color: var(--ledger-green);
+  font-family: var(--sans);
+  font-weight: 700;
+}
+.rows {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.row > span:first-child {
+  color: var(--faded);
+}
+.num {
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.years {
+  display: grid;
+  gap: 0.75rem;
+}
+.year {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr 4.5rem 8rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+.year-note {
+  display: block;
+  font-size: var(--step--1);
+  color: var(--brass);
+}
+/* Bars grow from a centre zero line: gains to the right in Pencil blue, losses to the left in Faded. */
+.year-bar {
+  position: relative;
+  height: 14px;
+}
+.year-bar::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rule);
+}
+.year-bar > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.year-bar .pos {
+  left: 50%;
+  background: var(--pencil-blue);
+}
+.year-bar .neg {
+  right: 50%;
+  background: var(--faded);
+}
+@media (max-width: 959px) {
+  .year {
+    grid-template-columns: 5.5rem 1fr 4rem;
+  }
+  .year > .num:last-child {
+    grid-column: 1 / -1;
+    text-align: left;
+    color: var(--faded);
+    margin-top: -0.5rem;
+  }
+}
+@media (min-width: 960px) {
+  .scene {
+    grid-template-columns: 5fr 7fr;
+    column-gap: 4rem;
+    align-items: start;
+  }
+  .scene h2 {
+    grid-column: 1 / -1;
+    font-size: var(--step-4);
+  }
+  .scene:not(:has(.rows)) .scene-prose {
+    grid-column: 1 / -1;
+  }
 }

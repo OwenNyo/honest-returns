@@ -1,16 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { FlowTiming, Rejection } from '../engine/types';
 import { detectFormat } from '../importers/detect';
-import { Analyse, LOAD_ERROR, SAMPLE_TITLE } from './Analyse';
+import { Analyse } from './Analyse';
 import type { Broker } from './BrokerPicker';
 import { loadSample, type SampleLoaded } from './data';
-import { EmptyState } from './EmptyState';
-import { Hero } from './Hero';
+import { Home } from './Home';
 import { Methodology } from './Methodology';
 import { Navbar } from './Navbar';
 import type { Tab } from './ResultTabs';
 import { Link, scrollToHash, usePath } from './router';
-import { Skeleton } from './Skeleton';
 import { runUpload, type UploadOutcome } from './upload';
 
 export type SampleState = { kind: 'loading' } | { kind: 'error' } | { kind: 'empty' } | { kind: 'loaded'; sample: SampleLoaded };
@@ -70,7 +68,7 @@ export function App() {
   }
 
   let page;
-  if (path === '/') page = <HomeInterim sample={sample} />;
+  if (path === '/') page = <Home sample={sample} />;
   else if (path === '/analyse')
     page = (
       <Analyse
@@ -111,27 +109,5 @@ export function App() {
       <Navbar path={path} />
       {page}
     </>
-  );
-}
-
-const checkOwn = (
-  <Link href="/analyse" className="button">
-    Check your own broker file
-  </Link>
-);
-
-// Until Task 26: the sample Hero with a link to Analyse.
-function HomeInterim({ sample }: { sample: SampleState }) {
-  return (
-    <main className="page">
-      {sample.kind === 'loading' && <Skeleton />}
-      {sample.kind === 'empty' && <EmptyState />}
-      {sample.kind === 'error' && <p role="alert">{LOAD_ERROR}</p>}
-      {sample.kind === 'loaded' && sample.sample.ok && (
-        <Hero title={SAMPLE_TITLE} result={sample.sample} ledger={sample.sample.ledger}>
-          <div className="actions">{checkOwn}</div>
-        </Hero>
-      )}
-    </main>
   );
 }
