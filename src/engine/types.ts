@@ -69,9 +69,10 @@ export interface Decomposition {
   local: Decimal;
   fx: Decimal;
   conversionCost: Decimal; // positive is a cost
+  fees: Decimal; // BUY and SELL fees at the day's rate, positive is a cost
   dividends: Decimal; // after withholding
   withholding: Decimal;
-  totalGain: Decimal; // local + fx - conversionCost + dividends
+  totalGain: Decimal; // local + fx - conversionCost - fees + dividends
 }
 export interface YearReturn { year: number; twr: Decimal; days: number }
 export type ComputeResult =

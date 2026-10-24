@@ -9,12 +9,15 @@ export function decompose(series: ValuationPoint[], ledger: LedgerRow[], _fx: Fx
   let conversion = D(0); // received - given, negative is a cost
   let divs = D(0);
   let withholding = D(0);
+  let fees = D(0);
   let flows = D(0);
   series.forEach((p, i) => {
     const f = p.fxRate;
     if (i > 0) fx = fx.plus(series[i - 1].valueUsd!.times(f.minus(series[i - 1].fxRate)));
     for (const r of ledger) {
-      if (r.type !== 'FX' || r.date !== p.date) continue;
+      if (r.date !== p.date) continue;
+      if (r.type === 'BUY' || r.type === 'SELL') fees = fees.plus(r.fees.times(f));
+      if (r.type !== 'FX') continue;
       const given = r.amount.plus(r.fees);
       conversion = conversion.plus(r.ticker === 'USD' ? r.quantity!.times(f).minus(given) : r.quantity!.minus(given.times(f)));
     }
@@ -27,7 +30,7 @@ export function decompose(series: ValuationPoint[], ledger: LedgerRow[], _fx: Fx
   });
   const totalGain = series[series.length - 1].valueSgd.minus(flows);
   const conversionCost = conversion.neg();
-  // The local price effect is the residual (fees and trade-versus-close included), so the identity holds exactly.
-  const local = totalGain.minus(fx).plus(conversionCost).minus(divs);
-  return { local, fx, conversionCost, dividends: divs, withholding, totalGain };
+  // Spec 17.3.1: the local price effect is the residual (trade-versus-close included), so the identity holds exactly.
+  const local = totalGain.minus(fx).plus(conversionCost).plus(fees).minus(divs);
+  return { local, fx, conversionCost, fees, dividends: divs, withholding, totalGain };
 }

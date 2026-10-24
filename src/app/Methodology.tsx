@@ -103,9 +103,10 @@ export function Methodology() {
         <p>
           The total gain is the end value minus the money put in, in SGD. It is split per day. The exchange rate effect is
           the USD held at the start of the day times the change in the rate. The conversion cost is the SGD value given up
-          on each conversion against the reference rate of that day. Dividends are the net dividend cash at that day's
-          rate. The price effect is what is left, so it includes trade fees and the difference between trade prices and
-          closes, and the parts always add up to the total exactly.
+          on each conversion against the reference rate of that day. Dividends are the cash after US tax at that day's
+          rate. Trading fees on buys and sells are their own line, at that day's rate, and dividends are shown before tax
+          with the US tax withheld as a line of its own. The price effect is what is left, so it includes the difference
+          between trade prices and closes, and the parts always add up to the total exactly.
         </p>
         <p>
           The split is in SGD, not percentage points. For one holding, the SGD return is (1 + price return) x (1 + rate

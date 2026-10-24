@@ -127,7 +127,7 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
         <div className="intro-side">
           <ul className="gets">
             <li>TWR and XIRR side by side, in SGD</li>
-            <li>The gain split into price, exchange rate, conversion cost and dividends</li>
+            <li>The gain split into price, exchange rate, dividends, tax, conversion cost and fees</li>
             <li>The same deposits put into one fund, for comparison</li>
           </ul>
           <div className="ghost">
@@ -158,8 +158,8 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
         decomposition: shown.result.decomposition && (
           <Scene id="decomposition" title={title('decomposition')} rows={<Decomposition d={shown.result.decomposition} />}>
             <p>
-              The total gain in SGD, split into what the share prices did, what the exchange rate did and what the
-              currency conversions cost.
+              The total gain in SGD, split into what the share prices did, what the exchange rate did, dividends and the
+              US tax on them, and what currency conversions and trading fees cost.
             </p>
             {shown.excluded && <p className="notice">These figures leave out {listTickers(shown.excluded.tickers)}.</p>}
           </Scene>

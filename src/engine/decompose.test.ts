@@ -43,8 +43,9 @@ const inputD = (prices: PriceSeries): ComputeInput => ({ ledger: ledgerD(), pric
 const d1 = () => inputD({ VOO: [bar('2021-06-01', '100'), bar('2021-06-02', '110')] });
 const d2 = () => inputD({ VOO: [bar('2021-06-01', '100'), bar('2021-06-02', '110', '0.50')] });
 
-const identity = (p: Record<'local' | 'fx' | 'conversionCost' | 'dividends' | 'totalGain', Decimal>) =>
-  p.local.plus(p.fx).minus(p.conversionCost).plus(p.dividends).eq(p.totalGain);
+// Spec 17.3.1: fees are their own line, so the identity subtracts them.
+const identity = (p: Record<'local' | 'fx' | 'conversionCost' | 'fees' | 'dividends' | 'totalGain', Decimal>) =>
+  p.local.plus(p.fx).minus(p.conversionCost).minus(p.fees).plus(p.dividends).eq(p.totalGain);
 
 describe('decompose on Golden D1 (no dividends)', () => {
   const run = () => {
@@ -52,8 +53,12 @@ describe('decompose on Golden D1 (no dividends)', () => {
     return decompose(ok(i).series, i.ledger, i.fx);
   };
 
-  test('local price effect is 138.7 SGD (includes the 1.3 SGD trade fee)', () => {
-    expect(run().local.toFixed(10)).toBe('138.7000000000');
+  test('local price effect is 140 SGD (fees are their own line)', () => {
+    expect(run().local.toFixed(10)).toBe('140.0000000000');
+  });
+
+  test('trading fees are 1.3 SGD (1 USD x 1.30)', () => {
+    expect(run().fees.toFixed(10)).toBe('1.3000000000');
   });
 
   test('FX effect is 104.9 SGD', () => {
@@ -73,7 +78,7 @@ describe('decompose on Golden D1 (no dividends)', () => {
     expect(run().totalGain.toFixed(10)).toBe('208.6000000000');
   });
 
-  test('local + fx - conversionCost + dividends equals totalGain exactly', () => {
+  test('local + fx - conversionCost - fees + dividends equals totalGain exactly', () => {
     expect(identity(run())).toBe(true);
   });
 
@@ -113,6 +118,10 @@ describe('decompose on a USD-to-SGD conversion', () => {
     expect([r.fx.toFixed(10), r.local.toFixed(10)]).toEqual(['100.0000000000', '0.0000000000']);
   });
 
+  test('trading fees are 0 (FX row costs stay in conversionCost)', () => {
+    expect(run().fees.toFixed(10)).toBe('0.0000000000');
+  });
+
   test('total gain is 95 SGD and the identity holds', () => {
     const r = run();
     expect(r.totalGain.toFixed(10)).toBe('95.0000000000');
@@ -131,10 +140,14 @@ describe('decomposition on Golden D2 (dividend on the ex-date)', () => {
   test('local, FX and conversion are unchanged from D1', () => {
     const r = run();
     expect([r.local.toFixed(10), r.fx.toFixed(10), r.conversionCost.toFixed(10)]).toEqual([
-      '138.7000000000',
+      '140.0000000000',
       '104.9000000000',
       '35.0000000000',
     ]);
+  });
+
+  test('fees are 1.3 SGD', () => {
+    expect(run().fees.toFixed(10)).toBe('1.3000000000');
   });
 
   test('total gain is 213.5 SGD and the identity holds', () => {
@@ -152,6 +165,37 @@ describe('decomposition on Golden D2 (dividend on the ex-date)', () => {
   });
 });
 
+// Spec 17.3.3: Golden C1 (spec 7), a DIVIDEND row with withholding 0.90 USD.
+describe('decomposition on Golden C1', () => {
+  const fxC: FxPoint[] = ['2021-03-25', '2021-03-26', '2021-03-29', '2021-03-30', '2021-03-31'].map((date) => ({
+    date,
+    sgdPerUsd: D('1.30'),
+  }));
+  const c1 = (): ComputeInput => ({
+    ledger: lines(
+      '2021-03-25,DEPOSIT,,,,SGD,1300,0',
+      '2021-03-25,FX,USD,1000,,SGD,1300,0',
+      '2021-03-25,BUY,VOO,2,360,USD,720,0',
+      '2021-03-31,DIVIDEND,VOO,2,1.50,USD,3.00,0.90',
+    ),
+    prices: {
+      VOO: [
+        bar('2021-03-25', '360'),
+        bar('2021-03-26', '362', '1.50'),
+        bar('2021-03-29', '362'),
+        bar('2021-03-30', '362'),
+        bar('2021-03-31', '365'),
+      ],
+    },
+    fx: fxC,
+    endDate: '2021-03-31',
+  });
+
+  test("a DIVIDEND row's withholding is not a trading fee", () => {
+    expect(ok(c1()).decomposition!.fees.toFixed(10)).toBe('0.0000000000');
+  });
+});
+
 // Real Tiingo-derived data is a gitignored local fixture; skip when absent (as in sample.test.ts).
 type RawMarket = { prices: Record<string, [string, string, string, string][]>; fx: [string, string][] };
 const marketFiles = import.meta.glob<RawMarket>('./fixtures/sample-market.json', { eager: true, import: 'default' });
@@ -160,13 +204,21 @@ const rawMarket = marketFiles['./fixtures/sample-market.json'];
 const sampleCsv = ledgerFiles['../sample/sample-ledger.csv'];
 
 describe.skipIf(rawMarket === undefined || sampleCsv === undefined)('decompose on the sample (needs local fixture)', () => {
-  test('local + fx - conversionCost + dividends equals totalGain exactly', () => {
+  const run = () => {
     const i: ComputeInput = {
       ledger: ledger(sampleCsv),
       prices: toPriceSeries(rawMarket.prices),
       fx: toFx(rawMarket.fx),
       endDate: '2025-06-30',
     };
-    expect(identity(decompose(ok(i).series, i.ledger, i.fx))).toBe(true);
+    return decompose(ok(i).series, i.ledger, i.fx);
+  };
+
+  test('local + fx - conversionCost - fees + dividends equals totalGain exactly', () => {
+    expect(identity(run())).toBe(true);
+  });
+
+  test('fees are 0 (the sample has no fees)', () => {
+    expect(run().fees.toFixed(10)).toBe('0.0000000000');
   });
 });
