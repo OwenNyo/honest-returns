@@ -863,3 +863,19 @@ a {
   border-radius: 2px;
   font: inherit;
 }
+
+/* Share card and PDF buttons: secondary to the brass upload button. */
+.share {
+  display: grid;
+  gap: 0.5rem;
+}
+.button.secondary {
+  background: none;
+  color: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--rule);
+  border: 0;
+  font-size: var(--step-0);
+}
+.button.secondary:hover {
+  box-shadow: inset 0 0 0 2px var(--faded);
+}

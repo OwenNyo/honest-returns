@@ -11,9 +11,9 @@ import {
 } from 'lightweight-charts';
 import { useEffect, useRef, useState } from 'react';
 import type { LedgerRow, ValuationPoint } from '../engine/types';
+import { cssVar } from './css';
 import { formatDate, formatSgd } from './format';
 
-const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // Display only: the chart library takes numbers; values are rounded to cents first.
 const num = (d: { toFixed(dp: number): string }) => Number(d.toFixed(2));

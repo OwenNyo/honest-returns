@@ -11,6 +11,7 @@ import { RawPricesPanel } from './RawPricesPanel';
 import { Rejections } from './Rejections';
 import { ResultTabs, type Tab } from './ResultTabs';
 import { SectionList } from './SectionList';
+import { ShareButtons } from './ShareButtons';
 import { SECTIONS } from './sections';
 import { Skeleton } from './Skeleton';
 import { TimingToggle } from './TimingToggle';
@@ -99,6 +100,7 @@ export function Analyse({ sample, file, tab, onTab, broker, onBroker, onFile, on
             {actions}
             <Hero title={shown.title} titleAs="p" result={shown.result} ledger={shown.ledger}>
               {shown.extra}
+              <ShareButtons result={shown.result} />
             </Hero>
           </>
         ),
