@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode, useState } from 'react';
+import { holdingRows } from '../engine/holdings';
 import type { ComputeInput, ComputeResult, FlowTiming, LedgerRow } from '../engine/types';
 import type { FileState } from './App';
 import type { InputFile } from './combine';
@@ -9,6 +10,7 @@ import { Decomposition } from './Decomposition';
 import { DividendRows, WITHHOLDING_PCT } from './Dividends';
 import { EmptyState } from './EmptyState';
 import { FileList } from './FileList';
+import { HoldingRows } from './Holdings';
 import { excludingClause, formatDate, formatPct, formatSgd, listTickers, riskText, yearLabel } from './format';
 import { Hero } from './Hero';
 import { PrintButton } from './PrintButton';
@@ -189,6 +191,29 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
             <p>
               The total gain in SGD, split into what the share prices did, what the exchange rate did, dividends and the
               US tax on them, and what currency conversions and trading fees cost.
+            </p>
+            {shown.excluded && <p className="notice">These figures leave out {listTickers(shown.excluded.tickers)}.</p>}
+          </Scene>
+        ),
+        holdings: shown.result.decomposition && (
+          <Scene
+            id="holdings"
+            title={title('holdings')}
+            rows={
+              <HoldingRows
+                rows={holdingRows(shown.input.ledger, shown.input.prices, shown.result.series, shown.result.dividends ?? [], shown.result.decomposition.totalGain)}
+                from={shown.result.series[0].date}
+              />
+            }
+          >
+            <p>
+              Each holding's gain in SGD from {formatDate(shown.result.series[0].date)} to{' '}
+              {formatDate(shown.result.series[shown.result.series.length - 1].date)}: its value at the end, plus what its
+              sales and dividends paid, less what it cost including fees, each at that day's exchange rate. A holding you
+              already had on {formatDate(shown.result.series[0].date)} counts from its value that day. Cash and exchange on
+              cash is the rest of the total gain: what the exchange rate did to USD cash, and what currency conversions cost.
+              Under each holding: its shares, its value on{' '}
+              {formatDate(shown.result.series[shown.result.series.length - 1].date)}, and its part of the total value that day.
             </p>
             {shown.excluded && <p className="notice">These figures leave out {listTickers(shown.excluded.tickers)}.</p>}
           </Scene>

@@ -7,6 +7,7 @@ const SPEC = [
   { id: 'years', title: 'Year by year' },
   { id: 'risk', title: 'Largest fall and volatility' },
   { id: 'decomposition', title: 'Where the gain came from' },
+  { id: 'holdings', title: 'Gain by holding' },
   { id: 'dividends', title: 'Dividends' },
   { id: 'benchmark', title: 'Against a single fund' },
   { id: 'raw-prices', title: 'Why raw prices' },
@@ -21,7 +22,7 @@ test('every section is one of the spec sections, with its spec title, in spec or
   expect(SECTIONS).toEqual(SPEC.filter((s) => present.has(s.id)));
 });
 
-// Spec 17.5: all seven sections exist.
-test('Analyse has all seven spec sections', () => {
+// Spec 17.5 and 18.2.3: all eight sections exist.
+test('Analyse has all eight spec sections', () => {
   expect(SECTIONS).toEqual(SPEC);
 });

@@ -989,6 +989,22 @@ a.tile-note:hover {
   font-size: var(--step--1);
   color: var(--faded);
 }
+/* Spec 18.2.3: a faded second line under a row label; plain weight under the bold Total. */
+.row-note {
+  display: block;
+  font-size: var(--step--1);
+  font-weight: 400;
+  color: var(--faded);
+}
+#holdings .rows {
+  gap: 0.75rem;
+}
+.holdings-head {
+  font-size: var(--step--1);
+  color: var(--faded);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
 /* Bars grow from a centre zero line: gains to the right in Pencil blue, losses to the left in Faded. */
 .year-bar {
   position: relative;
