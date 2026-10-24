@@ -644,7 +644,7 @@ Desktop (>= 960 px), max content width 1120 px, two columns 5/7, left-aligned:
 ```
 Alignment: everything left-aligned; figures in rows right-aligned on tabular numerals so decimal points line up. Nothing centred except the number-line labels over their marks.
 
-Number line: scale from `floor(min(0, twr, xirr) / 5) x 5` to `ceil(max(0, twr, xirr) / 5) x 5` percentage points, ticks every 5. TWR and XIRR marks as 2 px vertical strokes in their colours with their labels; the highlighter band between them; the gap labelled `{n} points` below.
+Number line: tick step is the smallest of 5, 10, 20, 25, 50, 100 percentage points that keeps the line to at most 7 ticks, so the labels stay apart at 360 px (ranges up to 30 points keep a step of 5); scale from `floor(min(0, twr, xirr) / step) x step` to `ceil(max(0, twr, xirr) / step) x step`, ticks every step. TWR and XIRR marks as 2 px vertical strokes in their colours with their labels; the highlighter band between them; the gap labelled `{n} points` below.
 
 ### 11.5 Principles
 1. The gap is the hero. The number line is the one bold element; everything else is graphite on paper.

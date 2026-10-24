@@ -1,0 +1,287 @@
+/* Spec 11.3 tokens. */
+@font-face {
+  font-family: 'Archivo';
+  src: url('./fonts/archivo-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('./fonts/source-serif-4-latin.woff2') format('woff2');
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --paper: #eef2ec;
+  --graphite: #1e2a2f;
+  --ruling: #bfcbc2;
+  --pencil-blue: #2457a6;
+  --ledger-green: #1d6b50;
+  --highlighter: #f2dc4e;
+
+  --sans: 'Archivo', system-ui, sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+
+  /* Modular scale, ratio 1.25. */
+  --step--1: 0.8125rem; /* 13 */
+  --step-0: 1rem; /* 16 */
+  --step-1: 1.25rem; /* 20 */
+  --step-2: 1.5625rem; /* 25 */
+  --step-3: 1.9375rem; /* 31 */
+  --step-4: 2.4375rem; /* 39 */
+  --hero: min(3.5rem, 15.5vw); /* 56 at 360 px, shrinks below */
+
+  --margin: 16px;
+  --space: 1.5rem;
+}
+
+@media (min-width: 960px) {
+  :root {
+    --hero: 72px;
+    --margin: 32px;
+    --space: 2rem;
+  }
+  html {
+    font-size: 106.25%; /* 17 px base on desktop */
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--pencil-blue);
+  outline-offset: 2px;
+}
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 var(--margin) calc(var(--space) * 2);
+}
+
+.site-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 64px;
+}
+.site-header .brand {
+  font-weight: 600;
+  font-size: var(--step-1);
+}
+.site-header a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+/* Hero: one column on phones, 5/7 columns from 960 px. */
+.hero {
+  display: grid;
+  gap: var(--space);
+  padding-top: var(--space);
+}
+.hero-main,
+.hero-side {
+  display: grid;
+  gap: var(--space);
+  align-content: start;
+  min-width: 0;
+}
+@media (min-width: 960px) {
+  .hero {
+    grid-template-columns: 5fr 7fr;
+    column-gap: 3rem;
+  }
+}
+
+.hero-title {
+  font-size: var(--step-2);
+  font-weight: 600;
+  line-height: 1.25;
+  max-width: 30ch;
+}
+
+.rates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.rate-label {
+  font-size: var(--step-0);
+  font-weight: 600;
+}
+.rate-value {
+  display: block;
+  font-size: var(--hero);
+  font-weight: 700;
+  font-stretch: 75%;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.rate-unit {
+  font-size: var(--step-0);
+}
+.rate-undefined {
+  display: block;
+  font-size: var(--step-1);
+  font-weight: 600;
+  line-height: 1.2;
+  padding-top: 0.5rem;
+}
+.twr {
+  color: var(--pencil-blue);
+}
+.xirr {
+  color: var(--ledger-green);
+}
+
+/* Superscript convention references (spec 11.5 principle 2), with a 44 px hit area. */
+.ref {
+  position: relative;
+  font-size: var(--step--1);
+  font-weight: 400;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 2px;
+  text-decoration: none;
+}
+.ref::after {
+  content: '';
+  position: absolute;
+  inset: -16px -19px; /* 45 px wide around a 7 px letter */
+}
+
+/* Number line: the one bold element. */
+.numberline {
+  position: relative;
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.nl-row {
+  position: relative;
+  height: 1.5em;
+}
+.nl-label {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+.nl-label.center {
+  transform: translateX(-50%);
+}
+.nl-label.end {
+  transform: translateX(-100%);
+}
+.nl-axis {
+  position: relative;
+  height: 28px;
+}
+.nl-axis::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--ruling);
+}
+.nl-tick {
+  position: absolute;
+  top: calc(50% - 4px);
+  width: 1px;
+  height: 9px;
+  background: var(--ruling);
+}
+.nl-band {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  background: var(--highlighter);
+  animation: nl-grow 400ms ease-out both;
+}
+.nl-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+}
+.nl-mark.twr {
+  background: var(--pencil-blue);
+}
+.nl-mark.xirr {
+  background: var(--ledger-green);
+}
+.nl-ticks {
+  font-weight: 400;
+}
+.nl-gap {
+  font-size: var(--step-0);
+}
+@keyframes nl-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nl-band {
+    animation: none;
+  }
+}
+
+.explanation {
+  font-family: var(--serif);
+  font-size: var(--step-1);
+  line-height: 1.6;
+  max-width: 34em;
+}
+
+.chart-readout {
+  font-size: var(--step--1);
+  min-height: 1.45em;
+}
+.chart {
+  height: 280px;
+}
+@media (min-width: 960px) {
+  .chart {
+    height: 360px;
+  }
+}
+.as-of {
+  font-size: var(--step--1);
+}
+
+.status {
+  padding-top: var(--space);
+}
