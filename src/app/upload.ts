@@ -6,7 +6,8 @@ import { fetchPrices, firstDate } from './data';
 
 export type UploadOutcome =
   | { kind: 'result'; result: ComputeResult & { ok: true }; asOf: IsoDate; tickers: string[]; ledger: LedgerRow[] }
-  | { kind: 'rejected'; rejected: Rejection[] };
+  | { kind: 'rejected'; rejected: Rejection[] }
+  | { kind: 'empty' };
 
 const MAX_TICKERS = 50; // the /api/prices limit (spec 9.2)
 const list = (tickers: string[]) => [...tickers].sort().join(', ');
@@ -38,7 +39,7 @@ export async function runUpload(text: string, fetchFn: typeof fetch = fetch, tim
       message: `Prices for ${list(notLoaded)} are not loaded yet. Try again tomorrow.`,
     });
   if (availability.length) return { kind: 'rejected', rejected: availability };
-  if (!body.asOf) throw new Error('/api/prices returned no asOf for available tickers');
+  if (body.asOf === null) return { kind: 'empty' }; // spec 15.1.3: nothing is cached yet
 
   const result = compute({ ledger: rows, prices: toPriceSeries(body.prices), fx: toFx(body.fx), endDate: body.asOf, flowTiming: timing });
   if (!result.ok) return { kind: 'rejected', rejected: result.rejected };

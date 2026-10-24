@@ -2,25 +2,39 @@ import type { ReactNode } from 'react';
 import type { ComputeResult, LedgerRow } from '../engine/types';
 import { formatDate, formatPct } from './format';
 import { NumberLine } from './NumberLineFigure';
+import { Link } from './router';
 import { ValueChart } from './ValueChart';
 
 type Ok = ComputeResult & { ok: true };
 
 const XIRR_UNDEFINED = 'Cannot be calculated';
 
-export function Hero({ title, result, ledger, children }: { title: ReactNode; result: Ok; ledger: LedgerRow[]; children?: ReactNode }) {
+// titleAs: Home opens with the title as its h1; on Analyse the page heading is 'Analyse', so the title is a plain line.
+export function Hero({
+  title,
+  titleAs: Title = 'h1',
+  result,
+  ledger,
+  children,
+}: {
+  title: ReactNode;
+  titleAs?: 'h1' | 'p';
+  result: Ok;
+  ledger: LedgerRow[];
+  children?: ReactNode;
+}) {
   const { twr, xirr, series } = result;
   const unit = (annualised: boolean) => <span className="rate-unit">{annualised ? 'a year' : 'in total'}</span>;
   const end = series[series.length - 1].date;
   return (
     <section className="hero">
       <div className="hero-main">
-        <h1 className="hero-title">{title}</h1>
+        <Title className="hero-title">{title}</Title>
         <div className="rates">
           <p className="twr">
             <span className="rate-label">
               TWR
-              <a className="ref" href="/methodology#flow-timing" aria-label="How TWR is calculated">a</a>
+              <Link className="ref" href="/methodology#flow-timing" aria-label="How TWR is calculated">a</Link>
             </span>
             <span className="rate-value">{formatPct(twr.value, 1)}</span>
             {unit(twr.annualised)}
@@ -28,7 +42,7 @@ export function Hero({ title, result, ledger, children }: { title: ReactNode; re
           <p className="xirr">
             <span className="rate-label">
               XIRR
-              <a className="ref" href="/methodology#xirr" aria-label="How XIRR is calculated">b</a>
+              <Link className="ref" href="/methodology#xirr" aria-label="How XIRR is calculated">b</Link>
             </span>
             {xirr.kind === 'ok' ? (
               <>
@@ -50,7 +64,8 @@ export function Hero({ title, result, ledger, children }: { title: ReactNode; re
         <ValueChart series={series} ledger={ledger} />
         <p className="as-of">
           Prices as of {formatDate(end)}
-          <a className="ref" href="/methodology#prices" aria-label="Where prices come from">c</a>
+          <Link className="ref" href="/methodology#prices" aria-label="Where prices come from">c</Link>
+          <a className="credit" href="https://www.tradingview.com/">Charting by TradingView</a>
         </p>
       </div>
     </section>

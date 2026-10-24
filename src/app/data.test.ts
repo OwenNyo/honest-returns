@@ -51,3 +51,21 @@ test('loadSample returns the asOf date from the API', async () => {
   const res = await loadSample(stubFetch(everyDayBody('2018-01-01', '2025-06-30')));
   expect(res.asOf).toBe('2025-06-30');
 });
+
+// Task 25, spec 15.1.3: an empty price cache is a state, not an error.
+test('loadSample resolves { kind: "empty" } when the API answers asOf null', async () => {
+  const body = {
+    asOf: null,
+    prices: {},
+    fx: [],
+    unavailable: [
+      { ticker: 'AAPL', reason: 'no_data_yet' },
+      { ticker: 'VOO', reason: 'no_data_yet' },
+    ],
+  };
+  expect(await loadSample(stubFetch(body))).toEqual({ kind: 'empty' });
+});
+
+test('loadSample still rejects when the API answers HTTP 500', async () => {
+  await expect(loadSample(stubFetch({ error: 'internal' }, 500))).rejects.toThrow();
+});

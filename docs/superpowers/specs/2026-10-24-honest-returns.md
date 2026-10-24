@@ -863,13 +863,13 @@ State: `App` keeps the sample load and the file state above the switch, so movin
 
 #### 15.1.2 Navbar (`src/app/Navbar.tsx`, replaces `.site-header` in `App.tsx`)
 
-Items, in order: brand `Honest Returns` (a `Link` to `/`), then `Home`, `Analyse`, `Methodology`, `GitHub`. `GitHub` is a plain `<a href="https://github.com/OwenNyo/honest-returns">` with visually hidden text ` (on GitHub)` after it; no icon, no arrow (11.5 copy rules).
+Items, in order: brand `Honest Returns` (a `Link` to `/`), then `Home`, `Analyse`, `Methodology`, `GitHub`. `GitHub` is a plain `<a href="https://github.com/OwenNyo/honest-returns">` whose accessible name is `GitHub`; no icon, no arrow (11.5 copy rules).
 
 Tokens (11b.3): ground Ink, no border, no shadow. Brand in Paper, Archivo 800, `--step-1`. Items in Archivo 600, `--step-0`, colour Faded. Active item: colour Paper, a 2 px Brass underline 6 px below the baseline (`text-decoration: underline 2px; text-underline-offset: 6px; text-decoration-color: var(--brass)`), and `aria-current="page"`. Hover: Paper. Focus: the existing 2 px Brass `:focus-visible` ring. Every item is at least 44 px tall. The navbar is not sticky (the Analyse page has its own sticky section list; two sticky bars would take too much of a 640 px tall phone screen).
 
-Desktop (>= 960 px): one row, 64 px tall, brand left, items right with 32 px gaps.
+From 640 px: one row, 64 px tall, brand left, items right with 32 px gaps.
 
-360 px: two rows, no menu button. Row 1: brand. Row 2: the four items, left-aligned, 20 px gaps. Reason: the four labels measure about 300 px at 16 px Archivo, which fits the 328 px content width, and a menu button would hide four short links behind a tap and need focus handling for an open and closed state.
+Below 640 px: two rows, no menu button. Row 1: brand. Row 2: the four items, left-aligned, 20 px gaps. Reason: the four labels measure about 300 px at 16 px Archivo, which fits the 328 px content width, and a menu button would hide four short links behind a tap and need focus handling for an open and closed state.
 
 ```
 360 px                                 1280 px (content 1120)

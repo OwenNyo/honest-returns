@@ -95,20 +95,189 @@ a {
   padding: 0 var(--margin) calc(var(--space) * 2);
 }
 
-.site-header {
+/* Navbar (spec 15.1.2): two rows on phones, one row from 640 px. Not sticky. */
+.navbar {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 var(--margin);
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  min-height: 64px;
+  justify-content: space-between;
+  column-gap: 32px;
 }
-.site-header .brand {
-  font-weight: 800;
-  font-size: var(--step-1);
-}
-.site-header a {
+.navbar .brand {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+  font-weight: 800;
+  font-size: var(--step-1);
+  text-decoration: none;
+  color: var(--paper);
+}
+.navbar nav {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+}
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  color: var(--faded);
+  text-decoration: none;
+}
+.nav-item:hover,
+.nav-item[aria-current='page'] {
+  color: var(--paper);
+}
+.nav-item[aria-current='page'],
+.tab[aria-selected='true'] {
+  text-decoration: underline 2px;
+  text-underline-offset: 6px;
+  text-decoration-color: var(--brass);
+}
+@media (min-width: 640px) {
+  .navbar {
+    min-height: 64px;
+    flex-wrap: nowrap;
+  }
+  .navbar nav {
+    width: auto;
+    gap: 32px;
+  }
+}
+
+/* Analyse: tabs and the section list (spec 15.1.5). */
+.analyse-bar {
+  display: contents;
+}
+.tabs {
+  display: flex;
+  gap: 24px;
+}
+.tab {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--faded);
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  color: var(--paper);
+}
+.tab:disabled {
+  color: var(--rule);
+  cursor: not-allowed;
+}
+.section-list {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 20px;
+  min-height: 44px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--ink);
+  font-size: var(--step--1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.section-list a {
+  color: var(--faded);
+  text-decoration: none;
+}
+.section-list a:hover {
+  color: var(--paper);
+}
+/* Phones and tablets: the sticky bar runs edge to edge over the chart panel, and fades at the right while more links are off screen. */
+@media (max-width: 959px) {
+  .section-list {
+    box-shadow: 0 0 0 100vmax var(--ink);
+    clip-path: inset(0 -100vmax);
+  }
+  .section-list::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    flex: none;
+    width: 32px;
+    align-self: stretch;
+    background: linear-gradient(to right, transparent, var(--ink));
+  }
+}
+.analyse-section {
+  scroll-margin-top: 48px;
+}
+@media (min-width: 960px) {
+  .analyse-bar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 32px;
+    min-height: 48px;
+    background: var(--ink);
+  }
+  .section-list {
+    position: static;
+    gap: 28px;
+  }
+}
+
+/* Loading skeleton and empty state (spec 15.1.3). No shimmer. */
+.sk {
+  background: var(--binding);
+}
+.skeleton .hero-side .sk {
+  background: var(--rule);
+}
+.sk-title {
+  width: 70%;
+  height: calc(var(--display) * 2.1);
+}
+.sk-rate {
+  height: calc(var(--hero) * 1.6);
+}
+.sk-line {
+  height: 44px;
+}
+.sk-chart {
+  height: 300px;
+}
+@media (min-width: 960px) {
+  .sk-title {
+    height: calc(var(--display) * 1.05);
+  }
+  .sk-chart {
+    height: 440px;
+  }
+}
+.empty-state {
+  display: grid;
+  gap: var(--space);
+  padding-top: var(--space);
+  max-width: 40em;
+}
+.lede {
+  font-family: var(--serif);
+  font-size: var(--step-1);
+  line-height: 1.6;
+  max-width: 34em;
+}
+.not-found {
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+  padding-top: var(--space);
 }
 
 /* Hero: figures on the ink ground, then the chart on the one raised surface (spec 11b.4). */
@@ -349,6 +518,12 @@ a {
   font-size: var(--step--1);
   color: var(--faded);
 }
+.credit {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-left: 1.5rem;
+}
 
 .status {
   padding-top: var(--space);
@@ -379,6 +554,7 @@ a {
   color: var(--ink);
   font-weight: 700;
   border-radius: 2px;
+  text-decoration: none;
   cursor: pointer;
 }
 .upload input:focus-visible + .button {
@@ -444,4 +620,39 @@ a {
   height: 20px;
   margin: 0;
   accent-color: var(--brass);
+}
+
+/* Broker picker (decision "Analyse page broker picker"). */
+.upload-block {
+  display: grid;
+  gap: 1rem;
+}
+.picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+}
+.picker legend {
+  padding: 0;
+  font-weight: 600;
+}
+.picker .disabled {
+  color: var(--faded);
+  cursor: not-allowed;
+}
+.soon {
+  font-size: var(--step--1);
+}
+.picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 16px;
+}
+.picker-row a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--faded);
 }

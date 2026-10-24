@@ -121,3 +121,10 @@ test('a file with no tickers computes from fx alone', async () => {
   expect(out.kind).toBe('result');
   expect(String(fetchFn.mock.calls[0][0])).toContain('tickers=&');
 });
+
+// Task 25, spec 15.1.3: asOf null with nothing unavailable is the empty state, not a throw.
+test('asOf null with no unavailable tickers gives { kind: "empty" }', async () => {
+  const csv = [HEADER, '2020-08-28,DEPOSIT,,,,SGD,1400,0', '2020-08-28,FX,USD,1000,,SGD,1360,0'].join('\n');
+  const out = await runUpload(csv, stubFetch({ asOf: null, prices: {}, fx: [], unavailable: [] }));
+  expect(out).toEqual({ kind: 'empty' });
+});
