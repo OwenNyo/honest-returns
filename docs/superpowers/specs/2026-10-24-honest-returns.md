@@ -807,3 +807,373 @@ Operational notes:
 - Deployment (plan task 12) is a checklist Owen runs; the driver does a dry run only.
 
 Checkpoint 1 addendum (orchestrator): `src/sample/sample-ledger.csv` (about 80 trade rows whose prices come from Tiingo closes) is committed, because it is a ledger of trades, not a price feed, and the landing page needs it. `src/engine/fixtures/sample-market.json` (the full price and FX series) stays gitignored; tests that need it skip when it is absent.
+
+## Task 15 addendum: the real IBKR Activity Statement format (2026-10-24)
+
+Owen supplied a real IBKR Singapore Activity Statement CSV (a year-to-date period statement). It is personal financial data, so it is never committed: the driver copies it to `src/importers/fixtures/ibkr-real.csv` (gitignored) and tests that read it skip when it is absent. The committed fixture `src/importers/fixtures/ibkr-sample.csv` is synthetic, written by the driver with the same sections, quoting and quirks, round numbers and a few tickers. The format written from memory in 10.11 is replaced by the following.
+
+- Every line starts with `<Section>,<Header|Data>,...`. Sections that matter: `Statement` (Period, BaseCurrency), `Trades`, `Deposits & Withdrawals`, `Dividends`, `Withholding Tax`, `Cash Report`, `Mark-to-Market Performance Summary`, `Financial Instrument Information`. `Total` and `SubTotal` data rows are skipped. Fields with commas are double-quoted, for example `"2026-06-23, 12:40:16"`. A section's Header line can appear more than once with different columns (Financial Instrument Information has one header for stocks and another for options); read the header that precedes each data block.
+- `Trades,Data,Order,<Asset Category>,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,...`
+  - `Stocks`: Quantity positive is a BUY, negative a SELL. `amount` = |Proceeds|, `fees` = |Comm/Fee|, `price` = T. Price, `date` = the date part of Date/Time. Fractional quantities are possible.
+  - `Forex` with Symbol `USD.SGD`: an FX row. Quantity is the USD leg (negative means USD sold for SGD), T. Price is SGD per USD, Proceeds is the SGD leg. Map to the canonical FX row (ticker = currency received, quantity = amount received, currency = currency paid, amount = amount paid).
+  - `Equity and Index Options`: out of scope. Skip and emit one notice `Options trades were skipped: {n} rows. Results are approximate because option premiums also moved your cash.`
+- `Deposits & Withdrawals,Data,Currency,Settle Date,Description,Amount`: SGD positive is DEPOSIT, negative is WITHDRAW. Non-SGD flows are rejected with `flow_currency` as 10.11 says.
+- `Dividends,Data,Currency,Date,Description,Amount` and `Withholding Tax,Data,Currency,Date,Description,Amount`: the Description starts with the symbol and ISIN, for example `MSFT(US5949181045) Cash Dividend USD 0.91 per Share (Ordinary Dividend)`. Join dividend and tax rows by symbol and date. Emit DIVIDEND rows with `amount` = gross dividend and `fees` = |withholding|, so the engine uses the broker's actual tax. Task 18 must prefer `fees` on a DIVIDEND row over the 30% assumption when present.
+- **Period statements have opening balances.** `Change in NAV` has a Starting Value. Opening positions come from `Mark-to-Market Performance Summary,Data,Stocks,Symbol,Prior Quantity,Current Quantity,Prior Price,...`; opening cash per currency from `Cash Report,Data,Starting Cash,<Currency>,...`. New canonical row type `OPENING`, dated the period start: either `ticker` + `quantity` + `price` (= Prior Price) + `currency` for a position, or `currency` + `amount` for cash. The engine treats the total opening value in SGD as an external inflow on the start date, so TWR and XIRR describe the statement period. Spec 5.1 gains this row type, the parser accepts it, and the engine applies it before any other row that day.
+- Symbols on non-US listings (for example an Irish-domiciled ETF listed on LSE in USD) are usually absent from Tiingo and come back as unsupported tickers. Say so on the methodology page.
+- The importer reports, per section, how many rows were converted, skipped and rejected, so the user can reconcile against the statement.
+
+## Checkpoint 3 decisions (2026-10-24, Owen)
+
+- Owen's real IBKR statement stays local only (gitignored fixture). The committed importer fixture is synthetic.
+- **No storage of user data anywhere.** Uploaded files are parsed and computed in memory in the browser, never uploaded to the server, never written to localStorage, sessionStorage, IndexedDB or caches, and are gone on reload. The only request an upload triggers is `/api/prices` with the ticker list and start date. Plan Task 16 (device-saved ledger) is cancelled; checkpoint 1 decision 14 is void. The upload screen and the methodology page state this rule in one sentence each.
+- **Device-saved ledger: still open with Owen** (addendum, 2026-10-24, second round). The plan marks Task 16 cancelled, and the rule above stands until Owen decides otherwise. The share card (15.2) and the PDF statement (15.3) read only the in-memory result. They must work the same whether or not Task 16 comes back, and neither may write to any browser storage. If Task 16 comes back after multi-file combining (15.4), the saved form must hold the whole file set (`{ name, text }[]`), not one file.
+
+## 15. Second-round additions (2026-10-24)
+
+State of the code when this was written: tasks 1 to 12 and 19 are built and deployed. Tasks 13, 14, 15, 17, 18, 20, 21, 23 and 24 are not built. In particular `/methodology` does not exist yet (the SPA fallback renders the landing), `src/importers/ibkr.ts` does not exist, and the `OPENING` row type from the Task 15 addendum is not in `src/engine/types.ts` or `src/shared/csv.ts`.
+
+Existing pieces these additions reuse (paths are real):
+- `src/app/data.ts`: `loadSample(fetchFn)` returning `Loaded = ComputeResult & { asOf; ledger }`, `fetchPrices`, `firstDate`.
+- `src/app/upload.ts`: `runUpload(text, fetchFn, timing)` returning `UploadOutcome`.
+- `src/app/Hero.tsx` (`Hero`), `src/app/NumberLineFigure.tsx` (`NumberLine`), `src/app/numberline.ts` (`numberLineScale`), `src/app/ValueChart.tsx` (`ValueChart`, and the local `cssVar` helper), `src/app/format.ts` (`formatPct`, `formatSgd`, `formatDate`), `src/app/Rejections.tsx`, `src/app/TimingToggle.tsx`, `src/app/UploadButton.tsx` (`Upload`).
+- Engine (`src/engine/index.ts`): `compute`, `valueDaily`, `yearlyTwr`, `explainGap`; types `ComputeResult`, `ValuationPoint` (has `cash`, `holdings`, `fxRate`, `netInvestedSgd`), `YearReturn`, `Rejection`, `RejectionCode`.
+- Tokens: section 11b.3, implemented as CSS custom properties in `src/app/styles.css` (`--ink`, `--binding`, `--paper`, `--faded`, `--brass`, `--pencil-blue`, `--ledger-green`, `--rule`, `--sans`, `--serif`, the `--step-*` scale).
+
+### 15.1 Information architecture: routes, navbar, the story on Home, the Analyse page
+
+Replaces the single-page layout of 10.1 and 11b.4. The Hero stays as is and becomes the opening scene of Home and the Returns section of Analyse.
+
+#### 15.1.1 Routes
+
+| Path | Page | Content |
+|---|---|---|
+| `/` | Home | The story of the sample portfolio (15.1.4) |
+| `/analyse` | Analyse | Upload, the `Sample` / `Your file` tabs, the full result in sections (15.1.5) |
+| `/methodology` | Methodology | Task 14. Until Task 14 ships, this route shows the footnotes a to c (15.3.3) under their anchors `#flow-timing`, `#xirr`, `#prices`, so the superscript links in `Hero` work. |
+| anything else | Not found | One line, `This page does not exist.`, and a link `Go to the home page`. |
+
+Routing: a hand-rolled path switch in `src/app/router.ts`, not React Router. Reason: three fixed paths with no parameters fit in about 25 lines, and the plan already chose "no router library" in Task 14. Contents:
+- `usePath(): string` reads `location.pathname` and re-renders on `popstate` and on a custom `navigate` event.
+- `navigate(to: string)`: `history.pushState`, dispatch the event, scroll to the element named by the hash if there is one, else to the top.
+- `Link` component: a plain `<a href>` whose `onClick` calls `navigate` for same-origin paths, unless a modifier key or a non-primary button is used (so open-in-new-tab still works).
+- `App.tsx` switches on the path. The Worker already serves `index.html` for every non-API path (`wrangler.jsonc` `not_found_handling: single-page-application`), so a direct load of `/analyse` works with no Worker change.
+
+State: `App` keeps the sample load and the file state above the switch, so moving between Home and Analyse keeps the result in memory. A reload clears it (Checkpoint 3: no storage). The sample is fetched once per page load, whatever the route.
+
+#### 15.1.2 Navbar (`src/app/Navbar.tsx`, replaces `.site-header` in `App.tsx`)
+
+Items, in order: brand `Honest Returns` (a `Link` to `/`), then `Home`, `Analyse`, `Methodology`, `GitHub`. `GitHub` is a plain `<a href="https://github.com/OwenNyo/honest-returns">` with visually hidden text ` (on GitHub)` after it; no icon, no arrow (11.5 copy rules).
+
+Tokens (11b.3): ground Ink, no border, no shadow. Brand in Paper, Archivo 800, `--step-1`. Items in Archivo 600, `--step-0`, colour Faded. Active item: colour Paper, a 2 px Brass underline 6 px below the baseline (`text-decoration: underline 2px; text-underline-offset: 6px; text-decoration-color: var(--brass)`), and `aria-current="page"`. Hover: Paper. Focus: the existing 2 px Brass `:focus-visible` ring. Every item is at least 44 px tall. The navbar is not sticky (the Analyse page has its own sticky section list; two sticky bars would take too much of a 640 px tall phone screen).
+
+Desktop (>= 960 px): one row, 64 px tall, brand left, items right with 32 px gaps.
+
+360 px: two rows, no menu button. Row 1: brand. Row 2: the four items, left-aligned, 20 px gaps. Reason: the four labels measure about 300 px at 16 px Archivo, which fits the 328 px content width, and a menu button would hide four short links behind a tap and need focus handling for an open and closed state.
+
+```
+360 px                                 1280 px (content 1120)
++----------------------------------+   +------------------------------------------------------------------------+
+| Honest Returns                   |   | Honest Returns              Home   Analyse   Methodology   GitHub     |
+| Home  Analyse  Methodology  GitHub|  |                             ----                                       |
+| ----                             |   +------------------------------------------------------------------------+
++----------------------------------+    (---- = brass underline under the active item)
+```
+
+#### 15.1.3 Loading and empty states (Home and Analyse)
+
+Loading skeleton (`src/app/Skeleton.tsx`), shown while `loadSample` is pending, on both pages in place of the Hero:
+- Blocks in the Hero's shape: one display-line block (2 lines at 360 px, 1 line at desktop, 70% width), two number blocks side by side (the `--hero` height), one 44 px number-line bar full width, then the full-bleed Binding panel with a 300 px (mobile) / 440 px (desktop) empty chart area.
+- Block colour Binding on Ink; inside the Binding panel, Rule. No shimmer or pulse (11b.6 allows one motion moment, the gap band).
+- The container has `aria-busy="true"` and holds visually hidden text `Loading prices.`
+
+Empty state (`src/app/EmptyState.tsx`), shown when `/api/prices` answers with `asOf: null`:
+- Heading (Archivo 800, `--display`): `Prices are not loaded yet`
+- Body (Source Serif 4, `--step-1`): `Prices load every night after the US market closes, between 6 am and 3 pm Singapore time. Come back after 3 pm Singapore time to see the numbers.` (The cron runs 22:00 to 07:00 UTC, spec 9.3, which is 06:00 to 15:00 SGT.)
+- No upload button on this state: an upload would fail with `prices_not_loaded`.
+- Interface change: `loadSample` returns `{ kind: 'empty' }` when `body.asOf === null` instead of throwing on `unavailable`. `runUpload` returns `{ kind: 'empty' }` on `asOf === null` instead of throwing (today `src/app/upload.ts` line 41 throws). Network or HTTP failures keep the existing text `Prices could not be loaded. Try again in a minute.`
+
+#### 15.1.4 Home: the story of the sample
+
+A page that reads top to bottom, built only from the sample's `Loaded` result and its ledger. Every number in the copy is generated from the data (no typed figures), formatted with `formatPct`, `formatSgd`, `formatDate`. Scenes are separated by space (`calc(var(--space) * 3)`), not rules or cards. Each scene after the first has an `h2` in Archivo 800 at `--step-4` (desktop) / `--step-3` (360 px) and body copy in Source Serif 4 at `--step-1`, line length under 70 characters. Figures in rows use the stacked-row style of 10.5 (label left, amount right, tabular numerals). No scroll-triggered animation.
+
+Copy direction for every scene: sentence case, plain words, second person only in the call to action, no adjectives about the product, no em dashes. A scene states one fact and why it matters, in at most three sentences.
+
+| # | Scene (h2) | What it says | Data it reads | Visual |
+|---|---|---|---|---|
+| 1 | (Hero, no h2) | Who the investor is and the two numbers. | `SAMPLE_TITLE`, `twr`, `xirr`, `explanation`, `series` | Existing `Hero` unchanged, including the number line and the chart. Its action is a `Link` button `Check your own broker file` to `/analyse`. |
+| 2 | `What they did` | Every month, SGD into the broker, converted to USD, whole shares bought, alternating funds. | count of DEPOSIT rows; total deposited = last `netInvestedSgd`; count of FX rows; BUY count per ticker; first and last ledger date | Stacked rows: `Deposits`, `Money in`, `Conversions to USD`, one row per ticker `Shares bought: VOO`. |
+| 3 | `Two numbers, two questions` | TWR answers how the investments did, whatever the timing of deposits. XIRR answers how the investor's money did, including the timing. | `twr`, `xirr` | Two short paragraphs, the first in Pencil blue for the term `TWR`, the second in Ledger green for `XIRR`; the terms only, not the paragraphs. |
+| 4 | `Why they differ` | Money arrived steadily, but returns came unevenly by year; the sentence from 10.7 says which way it tipped. | `yearReturns` (`days >= 90`), DEPOSIT sums per calendar year from the ledger, `explanation` | Stacked rows per year: year, TWR that year (`formatPct`, 1 dp), deposits that year (`formatSgd`). The best and worst years carry the words `strongest year` and `weakest year`, not colour alone. Then the `explanation` sentence. |
+| 5 | `What the exchange rate did` | Holdings are in USD but the result is in SGD, so the USD/SGD rate moves the result. | `series[0].fxRate`, `series.at(-1).fxRate`, their `fxDate`s; after Task 17, `decomposition` | Before Task 17: one sentence, `USD/SGD went from {a} to {b} over the period.` (4 dp). After Task 17: the decomposition rows from 10.5 (`Price`, `Exchange rate`, `Conversion cost`). |
+| 6 | `What dividends added` | Only after Task 18: dividends after the 30% US tax. | `dividends`, `decomposition.dividends`, `decomposition.withholding` | Two rows `Dividends after tax`, `US tax withheld`. The scene is not rendered while `dividends` is absent. |
+| 7 | `Why the method matters` | Raw prices with splits applied on the day, and the flow-timing convention, are what make the numbers checkable. | AAPL holding at the end of 2020-08-30 and 2020-08-31 from `series[].holdings`; after Task 21, the adjusted-close TWR | Before Task 21: `On 31 Aug 2020 AAPL split 4 for 1: the holding went from {x} to {y} shares and the price fell by the same factor, so the value did not jump.` plus a `Link` `Read the methodology` to `/methodology`. After Task 21: the 10.9 panel copy. |
+| 8 | `Check your own file` | The file is read in this browser and never uploaded. | none | One sentence `Your file is read in this browser and never uploaded or stored.` and a Brass `Link` button `Check your own broker file` to `/analyse`. |
+
+Scenes 5, 6 and 7 change when Tasks 17, 18 and 21 ship; those tasks update the scene in the same commit. Scene text that names VOO, AAPL or the 2020 split is about the sample only; Home never shows a user's file.
+
+#### 15.1.5 Analyse page
+
+Order: page heading `Analyse` (visually hidden; the tabs are the visible start), tabs, file list (15.4, once Task 28 ships), the sections.
+
+Tabs (`src/app/ResultTabs.tsx`): `Sample` and `Your file`, a `role="tablist"` of two `<button role="tab">` with `aria-selected` and `aria-controls`, Left and Right arrow keys move between enabled tabs. `Your file` has `disabled` until a file has been chosen (file state is not `none`); choosing a file selects it. The `Show the sample again` button in `App.tsx` is removed. Selected tab: Paper text with the Brass underline used by the navbar; unselected: Faded. The upload button (`Check your own broker file`) sits in the Returns section actions on both tabs, as now.
+
+Sections, stacked in this order, each a `<section id>` with an `h2`:
+
+| id | h2 | Filled by |
+|---|---|---|
+| `returns` | `Returns` | Hero (numbers, number line, sentence, chart), timing toggle (file only), upload, share and PDF buttons (Tasks 26, 27) |
+| `decomposition` | `Where the gain came from` | Task 17 |
+| `dividends` | `Dividends` | Task 18 |
+| `benchmark` | `Against a single fund` | Task 24 |
+| `raw-prices` | `Why raw prices` | Task 21 |
+
+A section is rendered only when its data exists; no empty headings, no "coming soon". The list of sections is one array in `src/app/sections.ts` (`{ id, title }[]`), and each later task adds its entry, so the order lives in one place. While only `returns` exists, the section list below is not rendered.
+
+Section list (`src/app/SectionList.tsx`), rendered when two or more sections are present:
+- Desktop: a sticky bar (`position: sticky; top: 0`), 48 px, on Ink, holding the tabs at the left and the section links at the right, so both stay in reach while scrolling.
+- 360 px: tabs are a normal row; below them a sticky 44 px row of section links that scrolls sideways (`overflow-x: auto`, no visible scrollbar on touch), Faded text, Archivo 600 `--step--1`.
+- Links are plain `#id` anchors with `scroll-margin-top` on the sections equal to the bar height. No scroll-spy (skipped; add when a section list longer than five makes position hard to tell).
+
+Wireframes, Analyse, with all sections present (later tasks):
+
+```
+360 px
++----------------------------------+
+| Honest Returns                   |
+| Home  Analyse  Methodology  GitHub|
+|       -------                    |
+| [Sample] [Your file]             |  tabs, Your file greyed until a file is loaded
+| Returns  Where the gain  Divid.. |  sticky, scrolls sideways
+|                                  |
+| A Singapore investor put SGD     |  Hero as in 11b.5
+| 1,000 a month into VOO and AAPL..|
+| TWR a          XIRR b            |
+| +20.8%         +14.0%            |
+| [==== number line, brass band ==]|
+| XIRR is lower than TWR because.. |
+| [Check your own broker file]     |
+| [Download image] [Square image]  |  Task 26
+| [ ] Include SGD values           |
+| [Print or save as PDF]           |  Task 27
+|##################################|
+|# readout, chart 300 px, as-of c #|
+|##################################|
+| Where the gain came from         |  h2, Task 17 rows
+| Price             +SGD 21,410.00 |
+| ...                              |
+| Dividends / Against a single     |
+| fund / Why raw prices            |
++----------------------------------+
+
+1280 px (content 1120)
++------------------------------------------------------------------------+
+| Honest Returns              Home   Analyse   Methodology   GitHub     |
+|                                    -------                             |
+| [Sample] [Your file]        Returns  Where the gain came from  ...     |  sticky bar
+|                                                                        |
+| A Singapore investor put SGD 1,000 a month into VOO                    |
+| and AAPL, January 2019 to June 2025.                                   |
+| TWR a                XIRR b                 | XIRR is lower than TWR   |
+| +20.8%               +14.0%                 | because ...              |
+|                                             | [Check your own file]    |
+|                                             | [Download image] [Square]|
+|                                             | [ ] Include SGD values   |
+|                                             | [Print or save as PDF]   |
+| 0%      5%      10%    XIRR [======brass======] TWR      25%           |
+|########################################################################|
+|# readout, chart 440 px, Prices as of 30 Jun 2025 c                    #|
+|########################################################################|
+| Where the gain came from                                               |
+| Price ................................................... +SGD 21,410  |
+| Dividends ...  Against a single fund ...  Why raw prices ...           |
++------------------------------------------------------------------------+
+```
+
+Wireframes, Home:
+
+```
+360 px                                  1280 px
++----------------------------------+    +------------------------------------------------------------------------+
+| Honest Returns                   |    | Honest Returns           Home   Analyse   Methodology   GitHub        |
+| Home  Analyse  Methodology  GitHub|   |                          ----                                          |
+| ----                             |    | [Hero exactly as 11b.4, chart panel full bleed]                        |
+| [Hero as 11b.5]                  |    |                                                                        |
+| [Check your own broker file]     |    | What they did                                                          |
+|                                  |    | Every month for six and a half years ...      Deposits ........... 78 |
+| What they did                    |    |                                                Money in .. SGD 78,000.00 |
+| Every month ...                  |    |                                                Shares bought: VOO ... 41 |
+| Deposits                      78 |    |                                                                        |
+| Money in           SGD 78,000.00 |    | Two numbers, two questions                                             |
+|                                  |    | TWR ... / XIRR ...                                                     |
+| Two numbers, two questions       |    |                                                                        |
+| ...                              |    | Why they differ                                                        |
+| Why they differ                  |    | prose (5 cols)                          2019  +31.2%  SGD 12,000.00   |
+| 2019   +31.2%    SGD 12,000.00   |    |                                         2020  ...                      |
+| ...                              |    | What the exchange rate did / What dividends added /                    |
+| What the exchange rate did       |    | Why the method matters                                                 |
+| What dividends added             |    |                                                                        |
+| Why the method matters           |    | Check your own file                                                    |
+| Check your own file              |    | Your file is read in this browser ...  [Check your own broker file]   |
+| [Check your own broker file]     |    +------------------------------------------------------------------------+
++----------------------------------+
+```
+Desktop scenes 2 to 7 use the 5/7 two-column grid of 11.4 (prose left, rows right); at 360 px they stack.
+
+Incidental complexity: none beyond `router.ts`. Scroll-spy, a menu button and route transitions are deliberately left out.
+
+### 15.2 Shareable result card (PNG, client-side)
+
+Purpose: a picture of the result that can be posted, with nothing private in it by default.
+
+Sizes: 1200 x 630 (link preview shape) and 1080 x 1080 (square). Two buttons in the Returns section actions: `Download image` (1200 x 630) and `Download square image`. One checkbox above them: `Include SGD values` (off by default, not remembered across reloads; no storage).
+
+Contents, always:
+- `Honest Returns` (Archivo 800).
+- The period: `{formatDate(first series date)} to {formatDate(last series date)}`.
+- TWR and XIRR: label, value via `formatPct(…, 1)`, unit `a year` or `in total`, in Pencil blue and Ledger green. If XIRR is undefined: `Cannot be calculated` and no gap band (as `Hero` does).
+- The number line: axis in Rule, ticks from `numberLineScale`, the gap band in Brass between the two marks, the marks in their colours, the gap label `{n} points` in Brass.
+- The explanation sentence (`result.explanation`) in Source Serif 4, wrapped by `measureText`, at most 3 lines (at the sizes below every rule in 10.7 fits in 3 lines; if a future sentence does not, the font steps down 2 px until it does).
+- `honest-returns.owennyowy.workers.dev` in Faded at the bottom.
+
+Contents with `Include SGD values` on: one more line, `Value {formatSgd(last.valueSgd)}, money in {formatSgd(last.netInvestedSgd)}`.
+
+Never included, whatever the toggle: the ticker list or any ticker, any SGD amount unless opted in, the uploaded file name (the download is always named `honest-returns-1200x630.png` or `honest-returns-1080x1080.png`), the sample title or any ledger row. The card is drawn from `{ twr, xirr, explanation, series[0].date, last series point }` only; the drawing function does not receive the ledger.
+
+Drawing: Canvas 2D in `src/app/shareCard.ts`.
+- `cardData(result, includeSgd): CardData` (pure) picks the fields above.
+- `drawCard(ctx: CanvasRenderingContext2D, data: CardData, size: '1200x630' | '1080x1080', tokens: Tokens): void` draws synchronously.
+- `downloadCard(result, size, includeSgd)`: reads the tokens with `cssVar` (moved from `ValueChart.tsx` to `src/app/css.ts`, used by both), waits for fonts, creates an off-DOM `<canvas>` at the exact pixel size (no devicePixelRatio scaling: the output size is the file size), draws, `canvas.toBlob('image/png')`, downloads through a temporary `<a download>` and `URL.createObjectURL`, then revokes the URL.
+- Font-loading requirement: canvas text does not redraw when a web font arrives, and `font-display: swap` plus lazy loading means Source Serif 4 is usually not loaded when the button is pressed. `downloadCard` must `await Promise.all([document.fonts.load('800 96px Archivo'), document.fonts.load('600 24px Archivo'), document.fonts.load('400 30px "Source Serif 4"')])` and then check `document.fonts.check(...)` for each. If any is false, nothing is downloaded and the line `The image could not be drawn because the fonts did not load. Try again.` appears under the buttons. A card in a fallback font is never produced.
+- Width 75 for the numbers: set `ctx.fontStretch = 'condensed'` where the property exists. Where it does not (older Firefox), the numbers draw at normal width; `drawCard` measures each number and steps the size down until both fit their half of the card, so the layout never overflows.
+- Background: the whole card is Ink; the bottom 72 px band (URL and optional SGD line) is Binding. No gradients, no shadows.
+
+Layout (px, 64 margin):
+```
+1200 x 630                                         1080 x 1080
++----------------------------------------------+   +--------------------------------------+
+| Honest Returns            2 Jan 2019 to      |   | Honest Returns                       |
+|                           30 Jun 2025        |   | 2 Jan 2019 to 30 Jun 2025            |
+| TWR                 XIRR                     |   |                                      |
+| +20.8%              +14.0%     (120 px, 800) |   | TWR              XIRR                |
+| a year              a year                   |   | +20.8%           +14.0%   (150 px)   |
+| 0%   5%   10%  XIRR[=====brass=====]TWR 25%  |   | a year           a year              |
+|                    6.8 points                |   | [====== number line, brass ======]   |
+| XIRR is lower than TWR because 85% of your   |   |              6.8 points              |
+| deposits arrived after 2019, ... (serif 30)  |   | XIRR is lower than TWR because 85%   |
+|##############################################|   | of your deposits ... (serif 36)      |
+|# honest-returns.owennyowy.workers.dev       #|   |                                      |
+|##############################################|   |######################################|
++----------------------------------------------+   |# honest-returns.owennyowy.workers.dev#|
+                                                   +--------------------------------------+
+```
+
+Testing: `drawCard` is tested in Node with a fake context object that records `fillText` calls and stubs `measureText` (width = 0.5 x font size x characters). No canvas package is added.
+
+Incidental complexity: the fake context in the test, and the font-size step-down loop (needed only because `ctx.fontStretch` is not universal).
+
+### 15.3 One-page PDF statement (client-side, print stylesheet)
+
+#### 15.3.1 Choice
+
+| Option | Size | Real PDF | Text selectable | Fonts | Blocker |
+|---|---|---|---|---|---|
+| `window.print()` with a print stylesheet and `@page` | 0 KB | yes, through the browser's "Save as PDF" destination | yes | the page's own web fonts | none for desktop Chrome, Safari, Firefox and iOS Safari. In-app browsers (LinkedIn, Instagram) may ignore `window.print()`; accepted, see Risks. |
+| jsPDF | about 350 KB minified | yes, direct download | yes | needs the fonts embedded as base64 TTF (Archivo and Source Serif 4 would add about 1 MB) | size; a second layout system |
+| pdf-lib | about 500 KB minified | yes, direct download | yes | needs `@pdf-lib/fontkit` to embed fonts | size; every line positioned by hand |
+
+Recommendation: print stylesheet. It needs no dependency and reuses the existing components and fonts. Its cost is that the user picks "Save as PDF" in the print dialog instead of getting a file directly.
+
+#### 15.3.2 Contents (one A4 page, `@page { size: A4; margin: 14mm }`)
+
+In order:
+1. `Honest Returns statement`, then `Sample portfolio` or `Your file` (never the file name).
+2. Period: `{first series date} to {last series date}`.
+3. Headline numbers: TWR and XIRR with units and superscripts a and b, and `Gap: {n} points`.
+4. The explanation sentence.
+5. The value chart as an image (15.3.4), with the line `Prices as of {formatDate(last series date)}` and superscript c.
+6. Conventions: `Deposits and withdrawals counted at the start of the day.` or `... at the end of the day.`, from the current `FlowTiming`.
+7. Footnotes a to c, full text (15.3.3).
+8. `Generated on {formatDate(today)}` where today is built from the local calendar date parts (`getFullYear`, `getMonth`, `getDate`), not from `toISOString`.
+9. `Nothing was stored. Your file was read in this browser and was not uploaded.` For the sample: `Nothing was stored. This statement was built in your browser.`
+
+No ticker list, no ledger rows, no decomposition (until a later task asks for it). SGD amounts appear only on the chart axis and readout, which is the user's own document.
+
+#### 15.3.3 Footnotes a to c (`src/app/footnotes.ts`, exact text)
+
+These constants are the single source for the PDF, the interim `/methodology` route (15.1.1) and, later, the opening sentences of Task 14's sections.
+
+- a (`#flow-timing`): `TWR, time-weighted return. Each day's return is the change in value with that day's deposits and withdrawals taken out, and the daily returns are chained over the period. Deposits and withdrawals count at the {start|end} of the day. Periods over 365 days are annualised with a 365-day year; shorter periods show the total.`
+- b (`#xirr`): `XIRR, money-weighted return. The one yearly rate at which your deposits, your withdrawals and the final value balance to zero, using a 365-day year. Solved by Newton's method from 10%, with a bisection fallback between -99% and 1000%. For periods of 365 days or less it is the total return over the period.`
+- c (`#prices`): `Prices are unadjusted daily closes from Tiingo, with splits applied on the split date. The USD/SGD rate is the ECB reference rate from Frankfurter. On days without a close or a rate, the last one is carried forward. Values are in SGD at the end of each calendar day.`
+
+#### 15.3.4 Mechanism
+
+- `src/app/PrintStatement.tsx` renders the contents above inside `<section class="print-statement">`. It is in the DOM whenever a result is shown and hidden on screen (`@media screen { .print-statement { display: none } }`). In `@media print`, everything else in `#root` is hidden and only the statement shows.
+- Colours in print: section 11.3 light tokens, because dark grounds waste ink and browsers drop backgrounds by default. White page, Graphite `#1E2A2F` text, Pencil blue `#2457A6` TWR, Ledger green `#1D6B50` XIRR, Highlighter `#F2DC4E` gap band, gap figure in Graphite. The statement reuses `NumberLine` by redefining the custom properties inside `.print-statement` under `@media print`.
+- Chart image: lightweight-charts draws to canvas in the dark theme. Refactor the chart setup in `ValueChart.tsx` into `buildChart(el: HTMLElement, series, ledger, colors)` (used by `ValueChart` unchanged on screen). The print button builds a second chart in a fixed 1000 x 400 px container placed off screen (`position: fixed; left: -10000px`, not `display: none`, which gives zero size) with the 11.3 light colours, waits one animation frame, calls `chart.takeScreenshot()` (lightweight-charts 5.2 API), stores `canvas.toDataURL('image/png')`, removes the chart.
+- Button `Print or save as PDF` (Returns section actions): build the snapshot, render it into the statement's `<img>`, `await img.decode()`, set `document.title` to `Honest Returns statement {today}` (the default PDF file name), call `window.print()`, restore the title on `afterprint`.
+- Printing with Ctrl+P without the button prints the same statement; the chart image is there only if the button has made a snapshot for the current result. Accepted.
+- Fit on one page: the chart image is 170 mm wide x 68 mm tall; footnotes at 8.5 pt; `break-inside: avoid` on the statement. Verified by print preview in Chrome and Safari.
+
+Incidental complexity: the off-screen second chart (needed because the screen chart is dark), and the `buildChart` refactor that it requires.
+
+### 15.4 Combining several statements
+
+#### 15.4.1 Input
+
+- `UploadButton.tsx`: `<input type="file" multiple>`. `Check your own broker file` replaces the current file set. A second control, `Add another file`, shown on the `Your file` tab once a set exists, appends to it. No per-file remove (skipped; replacing the set is the way out of a wrong choice; add a remove button if users ask).
+- File state in `App.tsx` holds `files: { name: string; text: string }[]` instead of one `name` and `text`. The `Your file` tab lists the files under the tabs with their periods, earliest first: `{name}: {from} to {to}`. The Returns heading for more than one file is `Your files ({n})`.
+- `runUpload(files: { name: string; text: string }[], fetchFn, timing)` replaces `runUpload(text, …)`. One file behaves exactly as today, including rejection text without a file prefix.
+
+#### 15.4.2 Rules (`src/app/combine.ts`)
+
+Per file, before any merging:
+1. Convert: canonical text through `parseCsv`; IBKR text (after Task 15) through `importIbkr`, then `parseCsv`. Any rejection in any file stops the run. With more than one file, each rejection carries the file name.
+2. Period: IBKR uses the `Statement,Data,Period` field (format `January 1, 2026 - October 23, 2026`, from the real export). A canonical file uses its first and last row dates.
+
+Across files, files sorted by period start:
+3. Overlap: two files overlap when their periods share at least one day. Every pair is checked (O(n²), n is small). The first overlap found rejects the set: code `overlapping_files`, `line: null`, message `{a} and {b} both cover {from} to {to}. Remove one of them.` with `{a}` the earlier-starting file, `{from}` = later start, `{to}` = earlier end.
+4. Gap: for IBKR files only (a stated period), when the next file starts more than one day after the previous one ends, the set is allowed and a notice is shown above the result: `No statement covers {from} to {to}, between {a} and {b}. The opening balances of {b} were checked against the earlier files.` Canonical files are not checked for gaps, because their row dates do not say what period they cover (monthly deposits always leave gaps).
+5. Merge: rows of all files concatenated in sorted-file order, each row's `line` renumbered to one counter across the set, with `origin: { file: string; line: number }[]` indexed by the new line. `valueDaily` already sorts by date, then row priority, then `line` (`src/engine/valuation.ts`), so same-day order is deterministic. Engine rejections are mapped back through `origin` before display. The engine is not changed.
+6. OPENING rows (Task 15 addendum): kept only from the earliest file. Every later file's OPENING rows are removed from the ledger and used only for step 7.
+7. Reconciliation, for each later file `f` that had OPENING rows, after `/api/prices` answers and before `compute`: run `valueDaily({ ledger: merged rows dated before f.start, prices, fx, endDate: addDays(f.start, -1), flowTiming })` and read the last `ValuationPoint` (`holdings` already include splits; `cash` per currency).
+   - Positions: for every symbol held in either the point or `f`'s OPENING rows, `|ledger - opening| <= 0.0001` shares, else code `reconcile_position`, message `{f} opens with {opening} {symbol}, but the earlier files end with {ledger} {symbol} on {date}.`
+   - Cash: for SGD and USD, `|ledger - opening| <= 1.00`, else code `reconcile_cash`, message `{f} opens with {currency} {opening} in cash, but the earlier files end with {currency} {ledger} on {date}.` Figures with `toFixed(2)`, quantities with `toString()`.
+   - The first failing check rejects the set. A rejection here wins over any engine rejection, because the engine has not run yet.
+   - Tolerances are constants in `combine.ts`: `POSITION_TOLERANCE = D('0.0001')`, `CASH_TOLERANCE = D('1.00')`.
+
+New `RejectionCode` members in `src/engine/types.ts`: `overlapping_files`, `reconcile_position`, `reconcile_cash`. `Rejection` gains an optional `file?: string` (the engine never sets it). `Rejections.tsx` prints `{file}, line {line}: {message}` or `{file}: {message}` when `file` is set.
+
+The 50-ticker limit applies to the merged set. The 10,000-row limit stays per file.
+
+Incidental complexity: the repeated `valueDaily` passes in step 7, one per later IBKR file over the prefix of the ledger. Ceiling: files x days of valuation; about 3x a single pass for six yearly statements. Upgrade path if it gets slow: one `valueDaily` pass that records the points on each boundary date.
+
+### 15.5 Assumptions (second round)
+
+1. Home is about the sample only; a user's file is shown only on Analyse.
+2. Home scenes 5, 6 and 7 show a simpler, data-backed version until Tasks 17, 18 and 21 ship.
+3. Until Task 14 ships, `/methodology` shows footnotes a to c only.
+4. Analyse sections are not rendered until they have data; "placeholders" means reserved entries in `sections.ts`, not visible empty sections.
+5. The share card draws in the dark 11b tokens; the PDF prints in the light 11.3 tokens.
+6. Canonical files are checked for overlap by row-date range and not checked for gaps.
+7. Cash reconciliation tolerance is 1.00 in the currency; positions 0.0001 shares.
+8. The PDF never names the file; the card never names the file, tickers or SGD amounts unless the toggle is on.
+
+### 15.6 Open questions (second round)
+
+1. Device-saved ledger: reinstate Task 16 or keep it cancelled? Share card and PDF work either way.
+2. IBKR cash reconciliation: the engine does not model interest, data fees or options (Task 15 skips option trades), so a real later statement's starting cash will often differ from the running ledger by more than 1.00. Options: (a) a wider tolerance, (b) reject as specified and tell the user why, (c) book the difference as a labelled adjustment row. Spec takes (b).
+3. Canonical gaps: never flagged (spec), or flag gaps over 31 days?
+4. Should Home also offer the share card for the sample? Spec: Analyse only.
+5. Navbar `Home` item: keep it alongside the brand link (spec), or let the brand be the only home link?
+6. PDF: is "Save as PDF in the print dialog" acceptable, or does Owen want a direct download (jsPDF, about 1.3 MB with fonts)?
+7. Task 14 should run straight after Task 25, since the navbar links to `/methodology` from every page. Agree?
+
+### 15.7 Risks (second round)
+
+- `window.print()` is ignored or unsupported in some in-app browsers (LinkedIn, Instagram webviews). The button then does nothing visible. Accepted: there is no reliable way to detect it (`afterprint` only fires when the dialog closes). Check on a phone; if it matters, add the line `To save a PDF, open this page in Safari or Chrome.` under the button.
+- `ctx.fontStretch` support differs across browsers; the step-down loop keeps the layout correct but the numbers may draw wider.
+- `chart.takeScreenshot()` on an off-screen container: confirm the canvas is non-empty in Safari before relying on it.
+- Reconciliation depends on the Task 15 importer producing exact Prior Quantity values and Starting Cash per currency.
+- The explanation sentence counts only DEPOSIT rows (`compute.ts` line 31); once OPENING rows exist (Task 15), the opening value should count as a deposit for the share figures. Owned by Task 15; flagged here because combined statements make it common.

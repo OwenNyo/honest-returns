@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Honest Returns: MVP first (tasks 1 to 12, a working app ready to deploy), then the full-scope items in the proposal's cut order (tasks 13 to 24). Every task leaves a working app, so work can stop after any task.
+**Goal:** Build Honest Returns: MVP first (tasks 1 to 12, a working app ready to deploy), then the full-scope items in the proposal's cut order (tasks 13 to 24), then the second-round additions (tasks 25 to 30, spec section 15). Every task leaves a working app, so work can stop after any task.
 
 **Architecture:** Single npm package. A pure TypeScript engine (`src/engine`, decimal.js, no I/O) runs in the browser. One Cloudflare Worker (Hono) serves the Vite build as static assets, `/api/*` from D1, and an hourly night cron that refreshes Tiingo prices and Frankfurter rates.
 
@@ -255,7 +255,9 @@ Needs Owen's Tiingo key in `.dev.vars` and an answer to Open question 2 (committ
 
 ## Full scope (cut order 1 to 12)
 
-### Task 13: Verification against Portfolio Performance (scope 1)
+### Task 13: Verification against Portfolio Performance (scope 1) - dropped 2026-10-24
+
+Dropped by Owen on 2026-10-24. The badge, the verification file and the Methodology section are removed; the export script and procedure were never built.
 
 **Files:**
 - Create: `scripts/export-pp.ts`, `docs/verification.md`, `src/verification.json` (written by Owen), `src/app/VerifiedBadge.tsx`
@@ -276,6 +278,8 @@ Needs Owen's Tiingo key in `.dev.vars` and an answer to Open question 2 (committ
 **Files:**
 - Create: `src/app/Methodology.tsx`, `src/engine/constants.ts` (`US_WITHHOLDING`, `XIRR_GUESS = 0.1`, `XIRR_RANGE = [-0.99, 10]`, `DAYS_PER_YEAR = 365`, `MONTHLY_NEW_TICKERS = 90`, `REPO_URL`)
 - Modify: `src/app/App.tsx` (route on `location.pathname === '/methodology'`), engine files to import constants instead of literals
+
+After Task 25: the route already exists in `src/app/router.ts` and shows the footnotes from `src/app/footnotes.ts`; this task replaces that interim page and opens sections 3, 10 and 6 with those footnote strings.
 - Test: `src/app/methodology.test.ts`
 
 - [ ] **Step 1: Test:** the rendered methodology text (via `react-dom/server` `renderToString`) contains the strings built from constants (`365-day year`, `-99%`, `1000%`, `10%`) and does not contain `GIPS requires`.
@@ -301,20 +305,9 @@ Blocked until Owen provides a real, anonymised IBKR Activity Statement CSV. Comm
 - [ ] **Step 4:** Run again. Expected: PASS.
 - [ ] **Step 5: Commit** `feat: ibkr activity statement importer`.
 
-### Task 16: Device-saved ledger (scope 4)
+### Task 16: Device-saved ledger (scope 4) - reinstated 2026-10-24
 
-**Files:**
-- Create: `src/app/saved.ts`, `src/app/SavedNotice.tsx`
-- Modify: `src/app/App.tsx`, `src/app/Upload.tsx`
-- Test: `src/app/saved.test.ts`
-
-**Interfaces:**
-- Produces: `saveLedger(storage: Storage, csv: string, fileName: string, today: IsoDate): void`; `loadLedger(storage): { csv; fileName; savedAt } | null` (returns null for missing, unparseable, or `version != 1`); `removeLedger(storage): void`. Key `honest-returns:ledger:v1`.
-
-- [ ] **Step 1: Tests** with a `Map`-backed fake `Storage`: round trip; corrupt JSON gives null; version 2 gives null; remove clears the key.
-- [ ] **Step 2:** Run `npx vitest run --project unit src/app/saved.test.ts`. Expected: FAIL, then implement, then PASS.
-- [ ] **Step 3:** UI per spec 10.12. Manual check: upload, reload, saved result shows with fresh prices; `Remove saved file` returns to the sample.
-- [ ] **Step 4: Commit** `feat: keep the uploaded ledger on this device`.
+Reinstated by Owen on 2026-10-24. Built as `src/app/saved.ts` with the whole file set, broker and timing saved; see the phase 2 decisions file.
 
 ### Task 17: FX and conversion-cost decomposition (scope 5)
 
@@ -329,6 +322,7 @@ Blocked until Owen provides a real, anonymised IBKR Activity Statement CSV. Comm
 - [ ] **Step 1: Tests** (Golden D1, spec 7): local 138.7, fx 104.9, conversionCost 35, dividends 0, totalGain 208.6, and `local + fx - conversionCost + dividends == totalGain` exactly. A USD-to-SGD FX row variant: sell 100 USD for 135 SGD with ref 1.40 gives conversionCost 5. On the sample: the identity holds exactly.
 - [ ] **Step 2:** Run `npx vitest run --project unit src/engine/decompose.test.ts`. Expected: FAIL, then implement per spec 10.5, then PASS.
 - [ ] **Step 3:** UI: stacked rows `Price`, `Exchange rate`, `Conversion cost`, `Dividends after tax` (hidden until task 18), right-aligned tabular figures.
+- [ ] **After Task 25:** add `{ id: 'decomposition', title: 'Where the gain came from' }` to `src/app/sections.ts`, render the rows in that Analyse section, and switch Home scene 5 to the decomposition rows (spec 15.1.4).
 - [ ] **Step 4: Commit** `feat: price, fx and conversion cost decomposition`.
 
 ### Task 18: Dividends with 30% withholding (scope 6)
@@ -344,6 +338,7 @@ Blocked until Owen provides a real, anonymised IBKR Activity Statement CSV. Comm
 - [ ] **Step 1: Tests:** Golden C1 and C2 daily values and TWR 0.0121, XIRR 0.0121, withholding 0.90; C2 warning `1 dividends were booked on the ex-date because no pay-date row was found.`; C3 `dividend_unmatched`; C4 `dividend_duplicate`; entitlement on a same-day split and ex-date uses the post-split holding; Golden D2 decomposition totals (dividends 4.9, sum 213.5, withholding 2.1).
 - [ ] **Step 2:** Run `npx vitest run --project unit src/engine`. Expected: new tests FAIL, then implement per spec 10.6, then all PASS (Golden A unchanged since divCash is 0).
 - [ ] **Step 3:** Re-run task 7's sample tests and task 13's verification test. The sample numbers change; tell Owen the verification must be redone (spec 10.3).
+- [ ] **After Task 25:** add `{ id: 'dividends', title: 'Dividends' }` to `src/app/sections.ts` and render Home scene 6 (spec 15.1.4).
 - [ ] **Step 4: Commit** `feat: dividends with us withholding`.
 
 ### Task 19: Explanation sentence (scope 7)
@@ -386,6 +381,7 @@ Blocked until Owen provides a real, anonymised IBKR Activity Statement CSV. Comm
 - [ ] **Step 1: Tests:** Golden E: adjusted closes 356.5083333333 and 358.5 before the ex-date and equal to close after; raw TWR 0.00805; adjusted TWR 0.0065440791. With no dividends, no splits and one flow, adjusted TWR equals raw TWR.
 - [ ] **Step 2:** Run `npx vitest run --project unit src/engine/adjusted.test.ts`. Expected: FAIL, then implement per spec 10.9, then PASS.
 - [ ] **Step 3:** Panel on the landing for the sample only, with the copy in spec 10.9.
+- [ ] **After Task 25:** the panel goes in the Analyse section `raw-prices` (`src/app/sections.ts` entry `Why raw prices`) and replaces the split sentence in Home scene 7 (spec 15.1.4).
 - [ ] **Step 4: Commit** `feat: adjusted close comparison panel`.
 
 ### Task 22: Tiger and moomoo importers (scope 10)
@@ -415,7 +411,138 @@ Blocked until Owen supplies a real, anonymised export from each broker. Then fol
 - [ ] **Step 1: Tests:** Golden F: end value 1272.7, TWR 0.10, XIRR 0.089 (start timing); end timing uses same-day close 110 for the withdrawal (sell 1 share, end value 9 x 110 x 1.30 = 1287, TWR 0.10); a withdrawal larger than the shadow value returns `The benchmark ran out of money on {date}.`
 - [ ] **Step 2:** Run `npx vitest run --project unit src/engine/benchmark.test.ts`. Expected: FAIL, then implement per spec 10.14, then PASS.
 - [ ] **Step 3:** UI: select (VOO default, VT, QQQ), benchmark TWR and XIRR in a row under the hero, a third line on the chart in Graphite, 1 px dotted, labelled with the ticker.
+- [ ] **After Task 25:** the select and benchmark rows go in the Analyse section `benchmark` (`src/app/sections.ts` entry `Against a single fund`).
 - [ ] **Step 4: Commit** `feat: benchmark with identical cash flows`.
+
+---
+
+## Second round (spec section 15)
+
+Execution order: Tasks 25 and 26 run before any of Tasks 14, 17, 18, 21 and 24, because those tasks fill the Analyse sections and Home scenes that Tasks 25 and 26 create (each has an "After Task 25" step). Then 27, 28 and 29 in any order. Task 30 needs Task 15. Recommended: 25, 26, 14, 27, 28, 29, 17, 18, 21, 24, 15, 30.
+
+Branch for these tasks: a feature branch off `dev`, merged back into `dev`. `master` deploys (`.github/workflows/deploy.yml`) and is not touched. The global constraints above apply; `npm test`, `npm run typecheck` and `npm run build` must pass after each task.
+
+### Task 25: Routes, navbar, Analyse page, loading and empty states (spec 15.1.1 to 15.1.3, 15.1.5, 15.3.3)
+
+**Files:**
+- Create: `src/app/router.ts`, `src/app/Navbar.tsx`, `src/app/Analyse.tsx`, `src/app/ResultTabs.tsx`, `src/app/sections.ts`, `src/app/SectionList.tsx`, `src/app/Skeleton.tsx`, `src/app/EmptyState.tsx`, `src/app/footnotes.ts`, `src/app/Methodology.tsx` (interim: footnotes a to c only)
+- Modify: `src/app/App.tsx` (path switch; sample and file state stay here; remove `Show the sample again`), `src/app/data.ts` (`loadSample` returns `{ kind: 'empty' }` on `asOf: null`), `src/app/upload.ts` (same, instead of the throw on line 41), `src/app/styles.css`
+- Test: `src/app/router.test.ts`, extend `src/app/data.test.ts` and `src/app/upload.test.ts`, `src/app/analyse.test.ts`
+
+**Interfaces:**
+- Produces: `usePath(): string`, `navigate(to: string): void`, `Link` in `router.ts`; `SECTIONS: { id: string; title: string }[]` in `sections.ts` (only `returns` for now); `FOOTNOTES: { a(timing: FlowTiming): string; b: string; c: string }` in `footnotes.ts`; `loadSample(): Promise<Loaded | { kind: 'empty' }>`; `UploadOutcome` gains `{ kind: 'empty' }`.
+
+- [ ] **Step 1: Write failing tests.**
+  - `data.test.ts`: a stub fetch answering `asOf: null` with both sample tickers in `unavailable` as `no_data_yet` makes `loadSample` resolve `{ kind: 'empty' }`, not throw. An HTTP 500 still rejects.
+  - `upload.test.ts`: a stub answering `asOf: null` with no `unavailable` gives `{ kind: 'empty' }`.
+  - `router.test.ts` (Node, a minimal fake `window` with `history` and `location`): `navigate('/analyse')` calls `pushState` with `/analyse`; a click with `metaKey` on `Link` is not intercepted.
+  - `analyse.test.ts` with `react-dom/server` `renderToString`: the Analyse page with no file renders a `Your file` tab with `disabled` and `aria-selected="false"`, and does not contain `Show the sample again`; with only `returns` in `SECTIONS` it renders no section list.
+  - `footnotes.test.ts` (or inside `analyse.test.ts`): `FOOTNOTES.a('end')` contains `at the end of the day`; none of the three strings contains an em dash.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app`. Expected: the new tests FAIL.
+- [ ] **Step 3:** Implement per spec 15.1. Navbar per 15.1.2 (two rows at 360 px, one at 960 px and up, Brass underline and `aria-current` on the active item). Skeleton and empty state per 15.1.3 on both `/` and `/analyse`. Until Task 26, `/` renders the existing `Hero` with a `Link` button to `/analyse`.
+- [ ] **Step 4: Verify.** `npx vitest run --project unit src/app` PASS; `npm run typecheck && npm run build`. Then `npm run dev` and check at 360 px and 1280 px: direct loads of `/`, `/analyse`, `/methodology#xirr` (scrolls to b), `/nope` (not-found line); back and forward buttons; tab keyboard arrows; `Your file` disabled before an upload and selected after one; the skeleton (throttle the network in DevTools); the empty state (point the dev D1 at an empty local database, or stub `/api/prices` to `{"asOf":null,...}`). Screenshot both widths and compare with the 15.1.2 and 15.1.5 wireframes.
+- [ ] **Step 5: Commit** `feat: routes, navbar and analyse page with loading and empty states`.
+
+### Task 26: Home story (spec 15.1.4)
+
+**Files:**
+- Create: `src/app/Home.tsx`, `src/app/story.ts` (pure: builds each scene's figures from `Loaded`)
+- Modify: `src/app/App.tsx` (`/` renders `Home`), `src/app/styles.css`
+- Test: `src/app/story.test.ts`
+
+**Interfaces:**
+- Consumes: `Loaded` from `data.ts`, `formatPct`, `formatSgd`, `formatDate`, `Hero`.
+- Produces: `storyFacts(loaded): { deposits: number; moneyIn: Decimal; conversions: number; buysByTicker: Record<string, number>; years: { year: number; twr: Decimal; deposited: Decimal }[]; best: number; worst: number; fxFrom: { rate: Decimal; date: IsoDate }; fxTo: { rate: Decimal; date: IsoDate }; split?: { ticker: string; date: IsoDate; before: Decimal; after: Decimal } }`. `split` is the first day on which a holding changes with no BUY or SELL row for that ticker on that day (`Loaded` carries no price bars).
+
+- [ ] **Step 1: Write failing tests** on Golden A data (`src/engine/fixtures/golden-a.ts`, computed with `compute`): deposits 2, moneyIn 1900, conversions 1, `buysByTicker` `{ AAPL: 1 }`, `fxFrom` 1.36 on 2020-08-28, `fxTo` 1.35 on 2020-09-01, `split` `{ ticker: 'AAPL', date: '2020-08-31', before: 2, after: 8 }`. Years with fewer than 90 days are excluded (Golden A has none, so `years` is empty). A `years` case from a hand-built series of two full years picks `best` and `worst`, ties to the earlier year.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/story.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement `storyFacts` and the eight scenes of spec 15.1.4. Scenes 5 and 7 use the before-Task-17 and before-Task-21 versions; scene 6 is not rendered while `dividends` is absent. No scroll animation.
+- [ ] **Step 4: Verify.** Tests PASS; typecheck and build pass. `npm run dev`, read `/` top to bottom at 360 px and 1280 px against the copy rules (sentence case, no em dashes, no typed figures: change `SAMPLE_END` locally and see every figure change). Check heading order with the browser accessibility tree.
+- [ ] **Step 5: Commit** `feat: home page story of the sample portfolio`.
+
+### Task 27: Shareable result card (spec 15.2)
+
+**Files:**
+- Create: `src/app/shareCard.ts`, `src/app/ShareButtons.tsx`, `src/app/css.ts` (`cssVar` moved out of `ValueChart.tsx`)
+- Modify: `src/app/ValueChart.tsx` (import `cssVar`), `src/app/Analyse.tsx` (buttons in the Returns section actions; before Task 25 this is `App.tsx`)
+- Test: `src/app/shareCard.test.ts`
+
+**Interfaces:**
+- Produces: `cardData(result, includeSgd): CardData`; `drawCard(ctx, data, size: '1200x630' | '1080x1080', tokens): void`; `downloadCard(result, size, includeSgd): Promise<void>`.
+
+- [ ] **Step 1: Write failing tests** with a fake context that records `fillText` strings and `fillStyle` at each call, and stubs `measureText`:
+  - Golden A result with `includeSgd: false`: the recorded text contains `+5.0%`, `+6.3%`, `in total`, the explanation, `28 Aug 2020 to 1 Sep 2020`, `honest-returns.owennyowy.workers.dev`; and no string contains `AAPL`, `SGD`, or a file name.
+  - `includeSgd: true`: contains `Value SGD 1,998.00, money in SGD 1,900.00`.
+  - XIRR undefined: contains `Cannot be calculated`; no band is drawn (no `fillRect` in Brass).
+  - `cardData` has no ledger or ticker field (a type-level check: `// @ts-expect-error` on `cardData(...).ledger`).
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/shareCard.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement per spec 15.2, including the font-loading wait and the failure line, and the font-size step-down when `ctx.fontStretch` is missing.
+- [ ] **Step 4: Verify.** Tests PASS; typecheck and build pass. In `npm run dev` download both sizes for the sample and for an uploaded Golden A file in Chrome, Safari and Firefox; open each PNG and check: exact pixel size, Archivo and Source Serif 4 (not a fallback), no tickers or file name, SGD line only with the toggle on, file name `honest-returns-1200x630.png`. Use a hard reload with the cache disabled for the first download, to exercise the font wait.
+- [ ] **Step 5: Commit** `feat: downloadable result card image`.
+
+### Task 28: One-page PDF statement through print (spec 15.3)
+
+**Files:**
+- Create: `src/app/PrintStatement.tsx`, `src/app/printChart.ts`
+- Modify: `src/app/ValueChart.tsx` (extract `buildChart(el, series, ledger, colors)`), `src/app/Analyse.tsx` (button and statement), `src/app/styles.css` (`@media print`, `@page`), `src/app/footnotes.ts` (consumed, not changed)
+- Test: `src/app/printStatement.test.ts`
+
+**Interfaces:**
+- Produces: `buildChart(el: HTMLElement, series: ValuationPoint[], ledger: LedgerRow[], colors: ChartColors): IChartApi`; `chartSnapshot(series, ledger): Promise<string>` (data URL); `PrintStatement({ result, timing, isSample, chartImage, today })`.
+
+- [ ] **Step 1: Write failing tests** with `renderToString(PrintStatement(...))` on the Golden A result: contains `Honest Returns statement`, `+5.0%`, `+6.3%`, `Gap: 1.4 points`, the explanation, all three footnote strings from `footnotes.ts` with the timing text matching `timing`, `Prices as of 1 Sep 2020`, `Generated on {today}`, and the right nothing-stored line for sample and for file. It never contains the file name passed to the page or `AAPL`.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/printStatement.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement per spec 15.3.4: `buildChart` refactor (on-screen chart unchanged), off-screen light chart and `takeScreenshot`, `img.decode()`, `document.title` swap and restore on `afterprint`, print stylesheet with the 11.3 light tokens.
+- [ ] **Step 4: Verify.** Tests PASS; typecheck and build pass. Print preview in Chrome, Safari and Firefox for the sample and an uploaded file: one A4 page, chart image present and light, footnotes legible, Save as PDF produces a file named `Honest Returns statement {date}.pdf`, text selectable. Compare the on-screen chart before and after: unchanged. Try iOS Safari share-to-print once.
+- [ ] **Step 5: Commit** `feat: one-page pdf statement through print stylesheet`.
+
+### Task 29: Combine several canonical CSV files (spec 15.4, canonical rules only)
+
+**Files:**
+- Create: `src/app/combine.ts`, `src/app/FileList.tsx`
+- Modify: `src/app/UploadButton.tsx` (`multiple`, and an `Add another file` mode), `src/app/upload.ts` (`runUpload(files, fetchFn, timing)`), `src/app/App.tsx` (file state holds `files`), `src/app/Analyse.tsx`, `src/app/Rejections.tsx` (file prefix), `src/engine/types.ts` (`overlapping_files` in `RejectionCode`; optional `file` on `Rejection`)
+- Test: `src/app/combine.test.ts`, update `src/app/upload.test.ts` call sites to the array form
+
+**Interfaces:**
+- Produces: `combineFiles(files: { name: string; text: string }[]): { rows: LedgerRow[]; origin: { file: string; line: number }[]; periods: { name: string; from: IsoDate; to: IsoDate }[]; notices: string[] } | { rejected: Rejection[] }`; `runUpload(files, fetchFn?, timing?)`.
+
+- [ ] **Step 1: Write failing tests.**
+  - Golden A split into two files (rows up to 2020-08-28, and the rest) gives the same TWR and XIRR through `runUpload` as the single file.
+  - Order of selection does not matter: `[b, a]` gives the same result as `[a, b]`.
+  - Two files sharing 2020-08-31 reject with `overlapping_files` and message `a.csv and b.csv both cover 2020-08-31 to 2020-08-31. Remove one of them.`; the same file twice rejects the same way.
+  - A parse error in the second file comes back as `{ file: 'b.csv', line: 3, ... }` and renders `b.csv, line 3: ...`.
+  - An engine rejection in the merged ledger (an oversell in the second file) is mapped back to that file and its own line number.
+  - One file: rejection text has no file prefix (the existing upload tests pass unchanged apart from the array call).
+  - No gap notice for canonical files.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/combine.test.ts src/app/upload.test.ts`. Expected: FAIL.
+- [ ] **Step 3:** Implement steps 1, 2, 3 and 5 of spec 15.4.2 for canonical files; the file list and `Your files ({n})` heading of 15.4.1.
+- [ ] **Step 4: Verify.** Tests PASS; typecheck and build pass. In `npm run dev`, select two Golden A halves at once, then one and `Add another file` for the other; then add an overlapping file and read the rejection at 360 px.
+- [ ] **Step 5: Commit** `feat: combine several csv files into one ledger`.
+
+### Task 30: Combine IBKR period statements with reconciliation (spec 15.4.2 steps 2, 4, 6, 7)
+
+Blocked until Task 15 (IBKR importer with `OPENING` rows) is merged.
+
+**Files:**
+- Modify: `src/app/combine.ts`, `src/app/upload.ts` (reconcile after `fetchPrices`, before `compute`), `src/importers/ibkr.ts` (return the statement period if Task 15 did not), `src/engine/types.ts` (`reconcile_position`, `reconcile_cash`)
+- Test: extend `src/app/combine.test.ts`; fixtures `src/importers/fixtures/ibkr-sample-h1.csv`, `ibkr-sample-h2.csv` (synthetic, two consecutive periods of the committed synthetic statement)
+
+**Interfaces:**
+- Produces: `reconcile(rows, laterFiles, prices, fx, timing): Rejection | null`; constants `POSITION_TOLERANCE`, `CASH_TOLERANCE`.
+
+- [ ] **Step 1: Write failing tests.**
+  - Two consecutive synthetic statements: OPENING rows kept only from the first; the result equals a single statement over the whole period.
+  - Second statement's opening VOO 10 while the first ends with 12: `reconcile_position`, message `h2.csv opens with 10 VOO, but the earlier files end with 12 VOO on {date}.`
+  - Opening USD cash off by 5.00: `reconcile_cash`; off by 0.50: accepted.
+  - A split between the two periods (Golden A AAPL bars): opening 8 after the split reconciles against 2 bought before it.
+  - A gap of 10 days between periods: accepted, with the exact gap notice.
+  - Overlapping statement periods, using the `Period` field: `overlapping_files`.
+  - A reconciliation failure is reported even when the merged ledger would also fail in the engine.
+  - Tests that read the gitignored real export skip when it is absent.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/combine.test.ts src/importers`. Expected: FAIL.
+- [ ] **Step 3:** Implement per spec 15.4.2. Repeated `valueDaily` passes are accepted (spec 15.4.2 incidental complexity note).
+- [ ] **Step 4: Verify.** Tests PASS; typecheck and build pass. Owen runs two of his own consecutive IBKR statements locally (never committed) and reports whether cash reconciles within 1.00 (spec 15.6 question 2).
+- [ ] **Step 5: Commit** `feat: combine ibkr statements with opening balance reconciliation`.
 
 ---
 
@@ -426,3 +553,7 @@ Blocked until Owen supplies a real, anonymised export from each broker. Then fol
 - `fetchFn` parameters on `refresh`, `fetchPrices`, `runUpload`: exist only for tests.
 - Per-year JSON rows in D1: required by the free-tier write quota, not incidental.
 - Moving the engine to the browser removes complexity (no server compute, no upload handling on the Worker).
+- `src/app/router.ts`: a hand-rolled path switch instead of a router library (three fixed paths).
+- Share card: a fake canvas context in tests, and a font-size step-down loop because `ctx.fontStretch` is not supported everywhere.
+- PDF: an off-screen second chart in light colours for the print image, and the `buildChart` refactor it needs.
+- Combining IBKR statements: one extra `valueDaily` pass per later statement for reconciliation (ceiling: files x days).

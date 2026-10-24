@@ -6,3 +6,4 @@ dist/
 .wrangler/
 out/
 src/engine/fixtures/sample-market.json
+src/importers/fixtures/ibkr-real.csv
