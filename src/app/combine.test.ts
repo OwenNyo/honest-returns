@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { LedgerRow, Rejection } from '../engine/types';
+import MOOMOO from '../importers/fixtures/moomoo-sample.csv?raw';
 import { combineFiles } from './combine';
 import { runUpload } from './upload';
 
@@ -297,5 +298,68 @@ describe('runUpload reconciles later IBKR statements', () => {
     expect(out.notices).toContain(
       'Cash adjusted by -5.00 USD on 2026-04-01 to match the statement (interest, fees or options not modelled).',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 38: moomoo order history files (spec 17.1.8).
+// ---------------------------------------------------------------------------
+
+const moomoo = { name: 'moomoo.csv', text: MOOMOO };
+const MOOMOO_HEADER = MOOMOO.split(/\r?\n/, 1)[0];
+
+describe('combineFiles, moomoo files', () => {
+  test('a moomoo file converts with its USD deposits and its own period', () => {
+    const out = combined([moomoo]);
+    expect(out.periods).toEqual([{ name: 'moomoo.csv', from: '2024-03-05', to: '2024-03-12' }]);
+    expect(out.rows.filter((r) => r.type === 'DEPOSIT' && r.currency === 'USD')).toHaveLength(3);
+  });
+
+  test('two moomoo files are rejected with moomoo_files', () => {
+    expect(rejectedBy([moomoo, { ...moomoo, name: 'moomoo2.csv' }])).toEqual([
+      {
+        line: null,
+        code: 'moomoo_files',
+        message:
+          "Use one moomoo file that covers all your trades. Cash is worked out from each file's own trades, so moomoo files cannot be combined.",
+      },
+    ]);
+  });
+
+  test('a plain CSV with a USD DEPOSIT is still rejected with flow_currency', () => {
+    expect(rejectedBy([{ name: 'usd.csv', text: csv('2024-01-02,DEPOSIT,,,,USD,1000,0') }])).toEqual([
+      expect.objectContaining({ line: 2, code: 'flow_currency' }),
+    ]);
+  });
+
+  test('a moomoo file and a canonical file with separate periods combine', () => {
+    const canonical = { name: 'early.csv', text: csv('2024-01-02,DEPOSIT,,,,SGD,1350,0', '2024-01-02,FX,USD,1000,,SGD,1350,0') };
+    expect(combined([moomoo, canonical]).periods).toEqual([
+      { name: 'early.csv', from: '2024-01-02', to: '2024-01-02' },
+      { name: 'moomoo.csv', from: '2024-03-05', to: '2024-03-12' },
+    ]);
+  });
+});
+
+describe('runUpload with a moomoo file', () => {
+  test('an engine rejection maps back to the moomoo file line', async () => {
+    // The only fill is a SELL on moomoo line 2, so the engine rejects it with oversell.
+    const cols = MOOMOO_HEADER.split(',');
+    const cells: Record<string, string> = {
+      Side: 'Sell',
+      Symbol: 'AAPL',
+      Markets: 'US',
+      Currency: 'USD',
+      'Fill Qty': '4',
+      'Fill Price': '160',
+      'Fill Amount': '640',
+      'Fill Time': '2024/03/08 22:00:00',
+    };
+    const seen = new Set<string>();
+    const line = cols.map((c) => (seen.has(c) ? '' : (seen.add(c), cells[c] ?? ''))).join(',');
+    const body = { asOf: '2024-03-08', prices: { AAPL: [['2024-03-08', '160', '1', '0']] }, fx: [['2024-03-08', '1.35']], unavailable: [] };
+    const out = await runUpload([{ name: 'moomoo.csv', text: `${MOOMOO_HEADER}\n${line}\n` }], stubFetch(body));
+    if (out.kind !== 'rejected') throw new Error('expected a rejection, got ' + out.kind);
+    expect(out.rejected).toContainEqual(expect.objectContaining({ line: 2, code: 'oversell' }));
   });
 });

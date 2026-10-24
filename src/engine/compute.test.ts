@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { parseCsv } from '../shared/csv';
-import { compute } from './compute';
+import MOOMOO_CSV from '../importers/fixtures/moomoo-sample.expected.csv?raw';
+import { compute, explanationDeposits } from './compute';
 import { D } from './decimal';
+import { excludeTickers } from './exclude';
 import * as goldenA from './fixtures/golden-a';
-import type { ComputeInput, LedgerRow } from './types';
+import type { ComputeInput, LedgerRow, PriceBar } from './types';
 
 const HEADER = 'date,type,ticker,quantity,price,currency,amount,fees';
 
@@ -120,5 +122,86 @@ describe('compute warnings', () => {
           'More than one rate between -99% and 1000% balances these cash flows; showing the one found from a 10% starting guess.',
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 38, spec 17.1.8: explanation deposits in either currency, read from the ledger before exclusion.
+// ---------------------------------------------------------------------------
+
+const deposits = (d: { date: string; amount: { toFixed(dp: number): string } }[]) => d.map((x) => [x.date, x.amount.toFixed(4)]);
+const pbar = (date: string, close: string): PriceBar => ({ date, close: D(close), splitFactor: D(1), divCash: D(0) });
+
+describe('explanationDeposits', () => {
+  test("explanationDeposits counts USD deposits at the day's rate", () => {
+    // Spec 17.1.9: the moomoo fixture's expected output, FX 1.35 carried.
+    const { rows, rejected } = parseCsv(MOOMOO_CSV, { usdFlows: true });
+    if (rejected.length) throw new Error('moomoo output invalid: ' + JSON.stringify(rejected));
+    const res = ok({
+      ledger: rows,
+      prices: {
+        AAPL: [pbar('2024-03-05', '150'), pbar('2024-03-08', '160'), pbar('2024-03-12', '170')],
+        VOO: [pbar('2024-03-06', '400'), pbar('2024-03-11', '410')],
+      },
+      fx: [{ date: '2024-03-05', sgdPerUsd: D('1.35') }],
+      endDate: '2024-03-12',
+    });
+    expect(deposits(explanationDeposits(rows, res.series))).toEqual([
+      ['2024-03-05', '2027.6865'],
+      ['2024-03-06', '1623.3615'],
+      ['2024-03-12', '156.6135'],
+    ]);
+  });
+
+  describe('on the spec 16.4 ledger with ZZZ excluded', () => {
+    const original = ledger(
+      [
+        HEADER,
+        '2024-01-02,DEPOSIT,,,,SGD,2754,0',
+        '2024-01-02,FX,USD,2040,,SGD,2754,0',
+        '2024-01-02,BUY,AAPL,5,200,USD,1000,0',
+        '2024-01-02,BUY,ZZZ,10,100,USD,1000,2',
+        '2024-03-01,SELL,ZZZ,4,110,USD,440,2',
+        '2024-03-15,DIVIDEND,ZZZ,,,USD,10,1.5',
+      ].join('\n'),
+    );
+    const reduced = excludeTickers(original, ['ZZZ']);
+    const input: ComputeInput = {
+      ledger: reduced,
+      prices: { AAPL: [pbar('2024-01-02', '200'), pbar('2024-03-28', '220')] },
+      fx: [
+        { date: '2024-01-02', sgdPerUsd: D('1.35') },
+        { date: '2024-03-01', sgdPerUsd: D('1.34') },
+      ],
+      endDate: '2024-03-31',
+    };
+    const series = () => ok(input).series;
+
+    test('excluded sales and dividends never count as deposits', () => {
+      expect(deposits(explanationDeposits(reduced, series(), original))).toEqual([['2024-01-02', '2754.0000']]);
+    });
+
+    test('without the original ledger, the synthetic USD deposits would count too', () => {
+      expect(deposits(explanationDeposits(reduced, series()))).toEqual([
+        ['2024-01-02', '2754.0000'],
+        ['2024-03-01', '586.9200'],
+        ['2024-03-15', '11.3900'],
+      ]);
+    });
+
+    test('compute with originalLedger set gives the same explanation as before this task', () => {
+      // Recorded from compute on this ledger at 3c702ca, before Task 38.
+      expect(ok({ ...input, originalLedger: original }).explanation).toBe(
+        'XIRR is higher than TWR because more of your money was invested in the stronger periods than in the weaker ones.',
+      );
+    });
+  });
+
+  test('Golden A gives 1400 and 600 (unchanged)', () => {
+    const i = goldenInput();
+    expect(deposits(explanationDeposits(i.ledger, ok(i).series))).toEqual([
+      ['2020-08-28', '1400.0000'],
+      ['2020-08-31', '600.0000'],
+    ]);
   });
 });

@@ -19,7 +19,7 @@ export function loadLedger(storage: Store): SavedLedger | null {
     const v = JSON.parse(storage.getItem(KEY) ?? 'null');
     if (v?.version !== 1 || !Array.isArray(v.files) || !v.files.length) return null;
     if (!v.files.every((f: InputFile) => typeof f?.name === 'string' && typeof f.text === 'string')) return null;
-    if (!['ibkr', 'canonical'].includes(v.broker) || !['start', 'end'].includes(v.timing) || typeof v.savedAt !== 'string') return null;
+    if (!['ibkr', 'canonical', 'moomoo'].includes(v.broker) || !['start', 'end'].includes(v.timing) || typeof v.savedAt !== 'string') return null;
     const exclude = v.exclude === undefined ? [] : v.exclude; // spec 16.7: saves from before partial reports have none
     if (!Array.isArray(exclude) || !exclude.every((t) => typeof t === 'string')) return null;
     return { files: v.files, broker: v.broker, timing: v.timing, exclude, savedAt: v.savedAt };

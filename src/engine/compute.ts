@@ -1,3 +1,4 @@
+import type Decimal from 'decimal.js';
 import { daysBetween } from '../shared/dates';
 import { D } from './decimal';
 import { MIN_VOLATILITY_DAYS } from './constants';
@@ -5,7 +6,7 @@ import { decompose } from './decompose';
 import { explainGap, yearlyTwr } from './explain';
 import { maxDrawdown, volatility } from './risk';
 import { annualise, dailyReturns, twr } from './twr';
-import type { ComputeInput, ComputeResult, Warning } from './types';
+import type { ComputeInput, ComputeResult, IsoDate, LedgerRow, ValuationPoint, Warning } from './types';
 import { valueDaily } from './valuation';
 import { xirr } from './xirr';
 
@@ -32,24 +33,30 @@ export function compute(input: ComputeInput): ComputeResult {
   }
   const t = annualise(twr(series), daysBetween(first, input.endDate));
   const yearReturns = yearlyTwr(series);
-  // Only SGD deposits are the investor's; USD flows come from excluded tickers (spec 16.2).
-  const deposits = input.ledger
-    .filter((r) => r.type === 'DEPOSIT' && r.currency === 'SGD')
-    .map((r) => ({ date: r.date, amount: r.amount }));
-  // The opening value is an inflow (decision 2): that day's net flow less its DEPOSIT and WITHDRAW rows.
-  for (const date of new Set(input.ledger.filter((r) => r.type === 'OPENING').map((r) => r.date))) {
-    const point = series.find((p) => p.date === date)!;
-    const rowFlow = input.ledger
-      .filter((r) => r.date === date && (r.type === 'DEPOSIT' || r.type === 'WITHDRAW'))
-      .reduce((s, r) => {
-        const sgd = r.currency === 'SGD' ? r.amount : r.amount.times(point.fxRate);
-        return r.type === 'DEPOSIT' ? s.plus(sgd) : s.minus(sgd);
-      }, D(0));
-    deposits.push({ date, amount: point.netFlowSgd.minus(rowFlow) });
-  }
+  const deposits = explanationDeposits(input.ledger, series, input.originalLedger ?? input.ledger);
   const explanation = explainGap({ twr: t, xirr: x, yearReturns, deposits });
   const { dividends } = valued;
   const decomposition = decompose(series, input.ledger, input.fx, dividends);
   const risk = { ...maxDrawdown(series), volatility: series.length >= MIN_VOLATILITY_DAYS ? volatility(series) : null };
   return { ok: true, series, twr: t, xirr: x, warnings, yearReturns, explanation, dividends, decomposition, risk };
+}
+
+// Spec 17.1.8: the investor's deposits for the explanation. Every DEPOSIT row of the ledger before exclusion, USD at the
+// day's rate, so synthetic deposits from excluded sales and dividends never count; plus each opening value
+// (decision 2): that day's net flow less its DEPOSIT and WITHDRAW rows of the reduced ledger.
+export function explanationDeposits(
+  ledger: LedgerRow[],
+  series: ValuationPoint[],
+  original: LedgerRow[] = ledger,
+): { date: IsoDate; amount: Decimal }[] {
+  const point = (date: IsoDate) => series.find((p) => p.date === date)!;
+  const sgd = (r: LedgerRow) => (r.currency === 'SGD' ? r.amount : r.amount.times(point(r.date).fxRate));
+  const deposits = original.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: sgd(r) }));
+  for (const date of new Set(ledger.filter((r) => r.type === 'OPENING').map((r) => r.date))) {
+    const rowFlow = ledger
+      .filter((r) => r.date === date && (r.type === 'DEPOSIT' || r.type === 'WITHDRAW'))
+      .reduce((s, r) => (r.type === 'DEPOSIT' ? s.plus(sgd(r)) : s.minus(sgd(r))), D(0));
+    deposits.push({ date, amount: point(date).netFlowSgd.minus(rowFlow) });
+  }
+  return deposits;
 }

@@ -82,7 +82,7 @@ test.each([
   ['a file name is not a string', { ...valid, files: [{ name: 1, text: 'x' }] }],
   ['a file text is not a string', { ...valid, files: [{ name: 'a.csv', text: null }] }],
   ['a file is not an object', { ...valid, files: ['a.csv'] }],
-  ['broker is not ibkr or canonical', { ...valid, broker: 'schwab' }],
+  ['broker is not ibkr, canonical or moomoo', { ...valid, broker: 'schwab' }],
   ['broker is missing', { ...valid, broker: undefined }],
   ['timing is not start or end', { ...valid, timing: 'middle' }],
   ['timing is missing', { ...valid, timing: undefined }],
@@ -91,6 +91,13 @@ test.each([
   ['exclude is null', { ...valid, exclude: null }],
 ])('loadLedger returns null when %s', (_, value) => {
   expect(loadLedger(stored(value))).toBeNull();
+});
+
+// Spec 17.1.8: moomoo is a saved broker.
+test('broker moomoo round-trips', () => {
+  const s = fakeStorage();
+  saveLedger(s, { ...data, broker: 'moomoo' });
+  expect(loadLedger(s)?.broker).toBe('moomoo');
 });
 
 test('clearLedger removes the saved ledger', () => {

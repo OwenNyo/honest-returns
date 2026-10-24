@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { D } from '../engine/decimal';
+import MOOMOO from '../importers/fixtures/moomoo-sample.csv?raw';
+import { combineFiles } from './combine';
 import { runUpload } from './upload';
 
 const HEADER = 'date,type,ticker,quantity,price,currency,amount,fees';
@@ -259,5 +261,77 @@ test('excluding the only holding of a file rejects with nothing_left and no tick
   expect(await runUpload(csv, stubFetch(partialBody()), 'start', ['ZZZ'])).toEqual({
     kind: 'rejected',
     rejected: [{ line: null, code: 'nothing_left', message: 'Excluding these holdings leaves nothing to measure.' }],
+  });
+});
+
+// Task 38, spec 17.1.9: the moomoo fixture through runUpload with the spec's stub prices.
+describe('the moomoo fixture computes with funding deposits', () => {
+  const body = {
+    asOf: '2024-03-12',
+    prices: {
+      AAPL: [
+        ['2024-03-05', '150', '1', '0'],
+        ['2024-03-08', '160', '1', '0'],
+        ['2024-03-12', '170', '1', '0'],
+      ],
+      VOO: [
+        ['2024-03-06', '400', '1', '0'],
+        ['2024-03-11', '410', '1', '0'],
+      ],
+    },
+    fx: [['2024-03-05', '1.35']],
+    unavailable: [],
+  };
+  const run = async () => result(await runUpload([{ name: 'moomoo.csv', text: MOOMOO }], stubFetch(body)));
+
+  test('net invested at the end is 3807.6615 (2820.49 x 1.35)', async () => {
+    expect((await run()).result.series.at(-1)!.netInvestedSgd.toFixed(10)).toBe('3807.6615000000');
+  });
+
+  test('value at the end is 4050', async () => {
+    expect((await run()).result.series.at(-1)!.valueSgd.toFixed(10)).toBe('4050.0000000000');
+  });
+
+  test('USD cash at the end is 0', async () => {
+    expect((await run()).result.series.at(-1)!.cash.USD.toFixed(10)).toBe('0.0000000000');
+  });
+
+  test('TWR cumulative is 0.0649010829', async () => {
+    expect((await run()).result.twr.value.toFixed(10)).toBe('0.0649010829');
+  });
+
+  test('XIRR is 0.0710198440', async () => {
+    const x = (await run()).result.xirr;
+    if (x.kind !== 'ok') throw new Error('expected ok XIRR');
+    expect(x.value.toFixed(10)).toBe('0.0710198440');
+  });
+
+  test('trading fees are 13.4865 SGD (9.99 x 1.35)', async () => {
+    expect((await run()).result.decomposition!.fees.toFixed(10)).toBe('13.4865000000');
+  });
+
+  test('notices include the funding notice', async () => {
+    expect((await run()).notices).toContain(
+      "This moomoo file lists trades only. USD 2,820.49 was counted as paid in on 3 days, each time the trades needed more USD than the file's own cash. Withdrawals and currency conversions are not in the file, so money from sales stays in the portfolio as cash.",
+    );
+  });
+});
+
+describe('runUpload passes the ledger before exclusion', () => {
+  test('with exclude ZZZ, originalLedger holds the ZZZ BUY row', async () => {
+    const out = result(await runUpload(PARTIAL.join('\n'), stubFetch(partialBody()), 'start', ['ZZZ']));
+    expect(out.input.originalLedger?.some((r) => r.type === 'BUY' && r.ticker === 'ZZZ')).toBe(true);
+  });
+
+  test('with exclude ZZZ, the ledger does not hold the ZZZ BUY row', async () => {
+    const out = result(await runUpload(PARTIAL.join('\n'), stubFetch(partialBody()), 'start', ['ZZZ']));
+    expect(out.input.ledger.some((r) => r.type === 'BUY' && r.ticker === 'ZZZ')).toBe(false);
+  });
+
+  test('without exclude, originalLedger equals the combined rows', async () => {
+    const out = result(await runUpload(GOLDEN_A, stubFetch(goldenBody())));
+    const combined = combineFiles([{ name: '', text: GOLDEN_A }]);
+    if ('rejected' in combined) throw new Error('expected rows');
+    expect(out.input.originalLedger).toEqual(combined.rows);
   });
 });

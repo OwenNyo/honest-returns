@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { HEADER } from '../shared/csv';
 
-export type Broker = 'ibkr' | 'canonical';
+export type Broker = 'ibkr' | 'canonical' | 'moomoo';
 
 const TEMPLATE = [HEADER, '2025-01-02,DEPOSIT,,,,SGD,1000,0', '2025-01-02,FX,USD,740,,SGD,1000,0', ''].join('\n');
 
@@ -34,7 +34,7 @@ export function BrokerPicker({ value, onChange }: { value: Broker; onChange: (b:
         </a>,
       )}
       {soon('Tiger Brokers')}
-      {soon('moomoo')}
+      {option('moomoo', 'moomoo order history', <span className="tile-note">From the desktop app: Trade History, History tab</span>)}
     </fieldset>
   );
 }

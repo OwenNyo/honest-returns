@@ -28,6 +28,7 @@ export interface ComputeInput {
   fx: FxPoint[];
   endDate: IsoDate; // last valuation date, inclusive
   flowTiming?: FlowTiming; // default 'start'
+  originalLedger?: LedgerRow[]; // the ledger before exclusion, for explanation deposits (spec 17.1.8); absent means ledger
 }
 export interface ValuationPoint {
   date: IsoDate;

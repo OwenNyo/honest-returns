@@ -4,6 +4,7 @@ import type { FlowTiming, FxPoint, IsoDate, LedgerRow, PriceSeries, Rejection } 
 import { valueDaily } from '../engine/valuation';
 import { detectFormat } from '../importers/detect';
 import { importIbkr, statementCurrencies } from '../importers/ibkr';
+import { importMoomoo } from '../importers/moomoo';
 import { parseCsv } from '../shared/csv';
 import { addDays } from '../shared/dates';
 
@@ -31,27 +32,34 @@ export function combineFiles(files: InputFile[]): Combined | { rejected: Rejecti
   const rejected: Rejection[] = [];
   const notices: string[] = [];
   const parsed: { name: string; rows: LedgerRow[]; from: IsoDate; to: IsoDate; stated: boolean }[] = [];
-  const isIbkr = (f: InputFile) => detectFormat(f.text) === 'ibkr';
+  const formats = files.map((f) => detectFormat(f.text));
+  // Spec 17.1.8: funding starts from zero cash in each moomoo file, so a second file would count money in twice.
+  if (formats.filter((x) => x === 'moomoo').length > 1) {
+    const message = "Use one moomoo file that covers all your trades. Cash is worked out from each file's own trades, so moomoo files cannot be combined.";
+    return { rejected: [{ line: null, code: 'moomoo_files', message }] };
+  }
   // A position held through a statement with no trades takes its currency from the other statements.
-  const known = Object.assign({}, ...files.filter(isIbkr).map((f) => statementCurrencies(f.text)));
+  const known = Object.assign({}, ...files.filter((_, i) => formats[i] === 'ibkr').map((f) => statementCurrencies(f.text)));
 
-  for (const f of files) {
+  for (const [i, f] of files.entries()) {
     name = f.name;
-    const ibkr = isIbkr(f) ? importIbkr(f.text, known) : null;
-    if (ibkr?.rejected.length) {
-      rejected.push(...ibkr.rejected.map(tag));
+    const ibkr = formats[i] === 'ibkr' ? importIbkr(f.text, known) : null;
+    const moomoo = formats[i] === 'moomoo' ? importMoomoo(f.text) : null;
+    const imported = ibkr ?? moomoo;
+    if (imported?.rejected.length) {
+      rejected.push(...imported.rejected.map(tag));
       continue;
     }
-    notices.push(...(ibkr?.notices ?? []));
-    const out = parseCsv(ibkr ? ibkr.csv : f.text);
+    notices.push(...(imported?.notices ?? []));
+    const out = parseCsv(imported ? imported.csv : f.text, { usdFlows: !!moomoo });
     // Converted rows and their rejections point at the statement line, not the converted CSV line.
     const toStatement = <T extends { line: number | null }>(x: T): T =>
-      ibkr && x.line !== null ? { ...x, line: ibkr.lines[x.line - 2] } : x;
+      imported && x.line !== null ? { ...x, line: imported.lines[x.line - 2] } : x;
     if (out.rejected.length) {
       rejected.push(...out.rejected.map(toStatement).map(tag));
       continue;
     }
-    // Step 2: an IBKR statement states its period; a canonical file covers its first to last row date.
+    // Step 2: an IBKR statement states its period; a moomoo or canonical file covers its first to last row date.
     if (ibkr && !ibkr.period) throw new Error(`${f.name}: the IBKR statement has no Period line`);
     const period = ibkr?.period ?? { from: minDate(out.rows), to: maxDate(out.rows) };
     parsed.push({ name: f.name, rows: out.rows.map(toStatement), ...period, stated: !!ibkr });

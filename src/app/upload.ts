@@ -75,7 +75,7 @@ export async function runUpload(
   if ('rejected' in reconciled) return { kind: 'rejected', rejected: reconciled.rejected };
   const { rows, origin } = reconciled;
   const notices = [...combined.notices, ...reconciled.notices];
-  const computeInput = { ledger: rows, prices, fx, endDate: body.asOf, flowTiming: timing };
+  const computeInput = { ledger: rows, prices, fx, endDate: body.asOf, flowTiming: timing, originalLedger: combined.rows };
   const result = compute(computeInput);
   if (!result.ok) return { kind: 'rejected', rejected: result.rejected.map((r) => mapBack(r, origin, files.length > 1)) };
   const share = excluded.length ? { tickers: excluded, share: excludedShare(combined.rows, excluded, fx) } : null;

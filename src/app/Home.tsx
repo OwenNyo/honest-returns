@@ -1,3 +1,4 @@
+import { explanationDeposits } from '../engine/compute';
 import { explainGap } from '../engine/explain';
 import { LOAD_ERROR, SAMPLE_TITLE } from './Analyse';
 import type { SampleState } from './App';
@@ -30,8 +31,7 @@ export function Home({ sample }: { sample: SampleState }) {
   const unit = (annualised: boolean) => (annualised ? 'a year' : 'in total');
   const pct = (d: Parameters<typeof formatPct>[0]) => formatPct(d, 1);
   const maxAbs = Math.max(...f.years.map((y) => Math.abs(y.twr.toNumber())), 0.0001);
-  // ponytail: deposits are the DEPOSIT rows only, as in compute; the sample ledger has no OPENING rows.
-  const deposits = s.ledger.filter((r) => r.type === 'DEPOSIT').map((r) => ({ date: r.date, amount: r.amount }));
+  const deposits = explanationDeposits(s.ledger, s.series);
   const explanation = explainGap({ twr: s.twr, xirr: s.xirr, yearReturns: s.yearReturns ?? [], deposits }, 'their');
   const fx = s.decomposition?.fx;
 
