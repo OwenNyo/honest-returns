@@ -147,3 +147,27 @@ Spec section 18, Tasks 39 to 42. Items 1 to 6 and 9 to 12 were settled by Owen i
 16. Weights are of the end value and `null` (not shown) when the end value is 0.
 17. **IBKR USD deposits and withdrawals** (Owen, checkpoint): a `Deposits & Withdrawals` row in USD becomes a USD DEPOSIT or WITHDRAW, counted as money in or out at that day's rate like an SGD row. Other currencies are still rejected with `flow_currency`, whose message becomes `DEPOSIT and WITHDRAW must be in SGD or USD.` Part of Task 39. Overrides spec 10.11 and the Task 15 addendum (SGD only).
 18. **Accepted by Owen at the checkpoint**: the title `Gain by holding` and the two-line row layout (item 13).
+
+## Fifth round (2026-10-25)
+
+Spec section 19, Tasks 43 to 48. Items 1 to 9 were settled by Owen; items 10 to 17 are explorer readings. Owen answered the four open questions at the checkpoint the same day; items 5, 6, 10, 11, 12 and 15 carry those answers.
+
+1. **Requested tickers load on demand**: with budget left, `POST /api/ticker-requests` fetches the full history at once and answers `added`; with the budget spent it answers `queued` and the user is told to try again in an hour; Tiingo 404 answers `not_found` at once.
+2. **Stale tickers are fetched before they are served** when the budget allows; otherwise the stored prices are served and `asOf` gives the date. Staleness rule in spec 19.3.
+3. **`last_used`**: every ticker `/api/prices` serves gets today's UTC date, one UPDATE per request.
+4. **Cron**: same schedule, 41 calls per run (item 5); queued requests, then priority 1 always, then tickers used in the last 30 days, oldest `refreshed_on` first. Unused tickers are not refreshed. The alphabetical walk over the whole store goes.
+5. **Budget**: one row per UTC hour in `budget`, `TIINGO_BUDGET = 41` calls per hour shared by the cron and on-demand fetches (Owen, checkpoint: was 45). 41 x 24 = 984, under Tiingo's 1,000 a day, so one table and one upsert cover both limits.
+6. **`TOTAL_TICKERS` and `list_full` removed.** The client cap changes (item 12).
+7. **Migration 0004** adds `tickers.last_used` and `budget`; Owen applies it remotely before the deploy.
+8. **Client**: after `added` the Analyse page re-runs the upload itself; `queued` says try again in an hour.
+9. **Early load** (`wrangler.cron.jsonc` with `--test-scheduled`) unchanged.
+10. **Claim order**: increment and check in one SQL statement (spec 19.4); a claimed call that fails still counts. **Clock-hour buckets accepted** (Owen, checkpoint): a `ponytail:` ceiling against a rolling hour at Tiingo; a Tiingo 429 falls back to queued or stored prices, as the cron does today.
+11. **No separate daily cap** (Owen, checkpoint). The explorer's 950-per-24-hours check is dropped in favour of 41 per hour (item 5).
+12. **Client cap counts tickers** (Owen, checkpoint). `MONTHLY_NEW_TICKERS = 90` (per month, all clients together) is kept. `DAILY_CLIENT_TICKERS = 30` tickers fetched or queued per hashed IP per UTC day replaces `DAILY_CLIENT_REQUESTS = 10` POSTs; same `client_requests` table, no 429 any more. Explorer's pick: a POST over the cap is answered ticker by ticker (tickers within 30 are fetched or queued, the rest `limit_reached`, `availableFrom` tomorrow), not rejected whole, because the count is per ticker and a whole-POST check would need the fetch count before the loop. Tickers that need no fetch cost nothing. A `not_found` resolved today is answered without a call. The `limit_reached` copy becomes `Ticker request limit reached. Requests open again on {d MMMM yyyy}.` for both caps; the date says which, so no "today" or number is needed.
+13. **`last_used` NULL counts as unused** (Owen's recommendation taken): after the migration the cron refreshes priority 1 and queued tickers only, until users ask for others.
+14. **`already_queued` folded into `queued`**: a queued ticker is retried on every request.
+15. **Re-run when any ticker loaded** (confirmed by Owen, checkpoint): a mixed answer re-runs; the tickers still missing come back in the rejection, and pressing the button again gives their message.
+16. **`/api/prices` is not cached when `unavailable` is non-empty**; otherwise the re-run after `added` would read the browser's cached rejection for an hour.
+17. **`appendYearRows` skips rows dated on or before the last stored row**, because two Workers can now fetch the same ticker at once.
+18. **Monthly symbol guard** (review): Tiingo's free plan allows 500 distinct symbols a month. `MONTHLY_SYMBOLS = 480`; a ticker not refreshed since the first of the UTC month costs a symbol, and before fetching one every path counts tickers refreshed this month plus requests answered `not_found` this month. At 480 the cron skips new symbols, `/api/prices` serves stored prices and a ticker request answers `limit_reached` until the first of next month. The 20-symbol margin covers the check-then-fetch race. Spec 19.13.
+19. **Budget 40, not 41** (review, amends items 4, 5 and 11): a rolling 24 hours touches up to 25 clock-hour buckets, so 40 x 25 = 1,000 keeps Tiingo's daily limit under any window.

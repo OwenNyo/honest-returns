@@ -925,3 +925,180 @@ Review focus (inputs no test below pins, most likely first):
 - `converted` is optional on a rejected outcome only so the UI can tell engine rejections (button) from the rest (no button).
 - `holdingRows` reads closes from `prices` again instead of `valueDaily` exposing per-ticker values; one `findLast` per ticker on the last day.
 - Removed: the `usdFlows` option of `parseCsv` (third round) and the parser's `flow_currency` check.
+
+## Fifth round (spec section 19)
+
+Order: 43, 44, 45, 46, 47, 48. Each task leaves a working app. Run commands from the repo root. After each task: the task's tests, `npm run typecheck` and `npm run build`. Commits: one line, stage files by name. Spec: `docs/superpowers/specs/2026-10-24-honest-returns.md` section 19; decisions under "Fifth round (2026-10-25)". The vitest project for the Worker is named `worker`. No engine goldens: this is Worker and UI logic.
+
+Test helpers used below (add to the test file that needs them, no shared module):
+- `stub(tiingo)` and `item(date, close)`: already in `worker/refresh.test.ts` lines 12 to 39.
+- `hourKey = (d: Date) => d.toISOString().slice(0, 13)`.
+- `spendBudget()` for endpoint tests: `INSERT OR REPLACE INTO budget (hour, used) VALUES (?, 41), (?, 41)` with `hourKey(new Date())` and `hourKey(new Date(Date.now() + 3_600_000))`, in `beforeEach`.
+
+Review focus (inputs most likely to bite, each pinned by a test below):
+- Two Workers storing the same bars for one ticker at once: no duplicate dates (Task 43, `appendYearRows` guard).
+- A ticker Tiingo has no new bar for (holiday, delisted): fetched at most once per UTC day (Task 45, `refreshed today is not fetched again`).
+- The browser cache serving the old rejection after `added` (Task 45, `no-store when unavailable is non-empty`).
+- An upload whose request loads some tickers and not others (Task 47, `any loaded ticker re-runs`).
+- Monday morning UTC, before the US opens: last trading day is Friday, not Sunday (Task 43, `lastTradingDay` table).
+
+### Task 43: Shared hourly budget, last trading day and fetch helpers (spec 19.3 to 19.5, 19.10)
+
+**Files:**
+- Create: `migrations/0004_on_demand_prices.sql` (exact text in spec 19.10)
+- Modify: `worker/refresh.ts` (export `TIINGO_BUDGET` at 41, add `takeBudget`, `lastTradingDay`, `addTicker`, `updateTicker`; `appendYearRows` guard; `refresh` calls `takeBudget` before every Tiingo call and uses the two helpers)
+- Test: `worker/refresh.test.ts`
+
+**Interfaces:**
+- Produces: `TIINGO_BUDGET = 41` (per UTC hour, shared); `takeBudget(db: D1Database, now: Date): Promise<boolean>`; `lastTradingDay(now: Date): IsoDate`; `addTicker(env: Env, ticker: string, today: IsoDate, fetchFn: typeof fetch): Promise<'added' | 'not_found' | 'stop'>`; `updateTicker(env: Env, ticker: string, lastDate: IsoDate | null, today: IsoDate, fetchFn: typeof fetch): Promise<'ok' | 'stop'>`. Table `budget(hour, used)`, column `tickers.last_used`.
+
+- [ ] **Step 1: Write failing tests** in `refresh.test.ts`; `beforeEach` also runs `DELETE FROM budget`.
+  - `appendYearRows skips rows dated on or before the last stored row`: `appendYearRows('[["2020-01-02","1","1","0"],["2020-01-03","2","1","0"]]', [['2020-01-03','2','1','0'], ['2020-01-06','3','1','0']])` parses to the two stored rows plus `2020-01-06`.
+  - `appendYearRows with every row already stored returns the stored text unchanged`.
+  - `lastTradingDay` (`test.each`): `2026-10-23T21:59:00Z` gives `2026-10-22`; `2026-10-23T22:00:00Z` gives `2026-10-23`; `2026-10-24T10:00:00Z` (Saturday) gives `2026-10-23`; `2026-10-26T10:00:00Z` (Monday) gives `2026-10-23`; `2026-10-26T22:30:00Z` gives `2026-10-26`; `2026-10-25T23:00:00Z` (Sunday night) gives `2026-10-23`.
+  - `takeBudget allows 41 calls in an hour and refuses the 42nd`: 41 calls at `NIGHT` return true, the 42nd false; `SELECT used FROM budget` is `41`.
+  - `takeBudget starts again in the next hour`: after 41 at `NIGHT`, a call at `NIGHT` + 1 hour returns true.
+  - `budget shared: calls made on demand earlier in the hour reduce the cron run`: budget row for `hourKey(NIGHT)` with 36, 10 seeded priority 1 tickers: `refresh` makes 5 Tiingo calls and `out.stoppedOn` is undefined.
+  - `a cron call that fails still counts toward the budget`: one ticker answering 500: budget `used` is `1`.
+  - Existing tests change for 41: `at most 45 Tiingo calls are made in one run` becomes `at most 41 Tiingo calls are made in one run` (50 tickers: 41 calls, 9 left with `refreshed_on` NULL); `queued requests and refreshes share the 45-call budget` becomes `... the 41-call budget` (40 queued and 10 tickers: 41 calls, the first 40 queued); `more than 45 queued requests leave the rest queued` becomes `more than 41 ...` (50 queued: 9 left). The rest stay as they are.
+- [ ] **Step 2:** Run `npx vitest run --project worker worker/refresh.test.ts`. Expected: FAIL on the new tests.
+- [ ] **Step 3: Implement** per spec 19.3 to 19.5 and add the migration. The claim is the one SQL statement in 19.4. `addTicker` upserts the request row (`requested_on` kept when present) and sets `last_used = today` on insert. `appendYearRows` reads the last stored date with a regex on the string's tail, never `JSON.parse`. Mark the two `ponytail:` ceilings (clock-hour buckets, no holiday list) in comments.
+- [ ] **Step 4: Verify.** Same command PASS; `npx vitest run --project worker` PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: shared hourly tiingo budget`.
+
+### Task 44: Nightly refresh of recently used tickers (spec 19.8)
+
+**Files:**
+- Modify: `worker/refresh.ts` (candidate SELECT, lines 60 to 66)
+- Test: `worker/refresh.test.ts`
+
+**Interfaces:**
+- Consumes: `takeBudget`, `updateTicker`, `tickers.last_used` (Task 43).
+
+- [ ] **Step 1: Change and add tests.** `seedTickers` rows gain an optional fifth element `lastUsed`, default `'2026-10-24'` (the `NIGHT` date), so the existing priority 0 tests keep their meaning.
+  - Replace `tickers are refreshed by priority, then never-refreshed, then oldest refreshed_on; today is skipped` with `priority 1 first, then never-refreshed, then oldest refreshed_on; today is skipped`: same seeds plus `UNUSED` (priority 0, `last_used` NULL, `refreshed_on` `2026-09-01`): order `['PRIO', 'NEW', 'OLD1', 'OLD2']`.
+  - `30-day window: a ticker last used 30 days ago is refreshed, 31 days ago is not`: `D30` with `last_used` `2026-09-24`, `D31` with `2026-09-23`, both `refreshed_on` `2026-10-01`: calls `['D30']`.
+  - `NULL last_used is not refreshed`: priority 0, `last_used` NULL, `refreshed_on` NULL: no Tiingo call.
+  - `priority 1 always: refreshed with NULL last_used`: priority 1, `last_used` NULL: one call.
+  - `priority 1 comes before a used ticker with an older refreshed_on`: `USED` (0, refreshed `2026-09-01`, used today), `PRIO` (1, refreshed `2026-10-20`, used NULL): order `['PRIO', 'USED']`.
+  - `queued requests still come before priority 1` (existing `queued requests are fetched oldest first, before allowlist refreshes` covers it; keep).
+- [ ] **Step 2:** Run `npx vitest run --project worker worker/refresh.test.ts`. Expected: FAIL on the new tests.
+- [ ] **Step 3: Implement** the SELECT of spec 19.8 with `?cutoff = addDays(today, -30)`.
+- [ ] **Step 4: Verify.** Same command PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: nightly refresh of recently used tickers`.
+
+### Task 45: Fetch stale prices on demand (spec 19.6)
+
+**Files:**
+- Modify: `worker/refresh.ts` (`refreshStale`), `worker/prices.ts` (call it before the first SELECT; `Cache-Control` rule)
+- Test: `worker/refresh.test.ts` (new `describe('refreshStale')`), `worker/prices.test.ts`
+
+**Interfaces:**
+- Consumes: `takeBudget`, `updateTicker`, `lastTradingDay` (Task 43).
+- Produces: `refreshStale(env: Env, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<void>`.
+
+- [ ] **Step 1: Write failing tests.** In `refresh.test.ts`, `describe('refreshStale')` with `const MON = new Date('2026-10-26T23:00:00Z')` (last trading day `2026-10-26`, today `2026-10-26`):
+  - `stale fetch: a ticker whose last bar is before the last trading day is fetched from the next day`: `TSTA` `last_date` `2026-10-23`, `refreshed_on` `2026-10-24`: one call with `startDate` `2026-10-24`; with the stub answering `item('2026-10-26', 10)`, `last_date` becomes `2026-10-26` and `refreshed_on` `2026-10-26`.
+  - `a ticker up to the last trading day is not fetched`: `last_date` `2026-10-26`: no call.
+  - `refreshed today is not fetched again`: `last_date` `2026-10-23`, `refreshed_on` `2026-10-26`: no call.
+  - `a ticker never backfilled is backfilled from 2005-01-01`: `last_date` NULL: `startDate` `2005-01-01`.
+  - `budget spent: nothing is fetched and stored prices stay`: budget row `hourKey(MON)` 41: no call, `last_date` unchanged.
+  - `budget shared: only the calls left this hour are made`: row with 39 and three stale tickers `TSTA`, `TSTB`, `TSTC`: calls `['TSTA', 'TSTB']`.
+  - `HTTP 429 ends the fetches`: `TSTA` answers 429, `TSTB` stale: calls `['TSTA']`.
+  - `last_used is set to today for every known requested ticker`: `refreshStale(env, ['TSTA', 'NOPE'], MON, ...)`: `TSTA.last_used` `2026-10-26`; no `NOPE` row created.
+  - `last_used is set even when nothing is stale or the budget is spent`.
+  - `tickers not requested are not touched`: `TSTB` seeded stale, request only `TSTA`: no call for `TSTB`, `TSTB.last_used` unchanged.
+  - In `prices.test.ts`, `beforeEach` adds `spendBudget()` (the seeded tickers are stale against the real clock):
+  - `no-store when unavailable is non-empty`: `tickers=TSTA,ZZZZ&from=2019-01-02` has `Cache-Control` `no-store` and a non-null `asOf`.
+  - `cached for an hour when everything is available`: `tickers=TSTA,TSTB&from=2019-01-02` has `public, max-age=3600`.
+  - `a served ticker gets last_used today`: after `get('tickers=TSTA&from=2019-01-02')`, `TSTA.last_used` is today's UTC date.
+  - `with the budget spent, stale prices are served as stored`: existing `asOf` expectations unchanged (keep the existing tests; they now run with the budget spent).
+- [ ] **Step 2:** Run `npx vitest run --project worker worker/refresh.test.ts worker/prices.test.ts`. Expected: FAIL on the new tests.
+- [ ] **Step 3: Implement** per spec 19.6: `getPrices` calls `await refreshStale(c.env, tickers, new Date())` before line 18 (skip when `tickers` is empty). `Cache-Control` is `public, max-age=3600` when `asOf && unavailable.length === 0`, else `no-store`. Add the `ponytail:` note on waiting for many stale tickers.
+- [ ] **Step 4: Verify.** `npx vitest run --project worker` PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: fetch stale prices on demand`.
+
+### Task 46: Load requested tickers on demand (spec 19.7)
+
+**Files:**
+- Modify: `worker/requests.ts` (`resolveTickers`, `RequestStatus`, `takeClientTicker`, `DAILY_CLIENT_TICKERS = 30` replacing `DAILY_CLIENT_REQUESTS`; remove the per-POST counter and its 429, `TOTAL_TICKERS`, `list_full`, `already_queued`), `src/engine/constants.ts` (remove `TOTAL_TICKERS` and its comment, lines 11 to 12)
+- Test: `worker/requests.test.ts`
+
+**Interfaces:**
+- Consumes: `takeBudget`, `addTicker` (Task 43).
+- Produces: `type RequestStatus = 'added' | 'queued' | 'not_found' | 'already_available' | 'limit_reached'`; `DAILY_CLIENT_TICKERS = 30`; `takeClientTicker(db: D1Database, client: string, today: IsoDate): Promise<boolean>`; `resolveTickers(env: Env, client: string, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<{ results: { ticker: string; status: RequestStatus }[]; availableFrom: IsoDate | null }>`. Response shape `{ results, availableFrom }` unchanged; no 429 any more.
+
+- [ ] **Step 1: Change and add tests.** `beforeEach` adds `spendBudget()` and `DELETE FROM budget` before it. Copy `stub` and `item` from `refresh.test.ts`.
+  - Remove: the five `TOTAL_TICKERS` / `list_full` tests (lines 147 to 199), `fillTickers`, the `TOTAL_TICKERS` import.
+  - `requesting the same ticker again gives already_queued` becomes `queue fallback: requesting a queued ticker again with the budget spent gives queued`, and the row's `requested_on` is unchanged.
+  - Remove: `one client is limited after DAILY_CLIENT_REQUESTS requests in a day` and `the daily limit of one client does not affect another` (replaced below), the `DAILY_CLIENT_REQUESTS` import.
+  - Keep as they are (now running with the budget spent): `a new ticker is queued`, the stored-row test, `already_available`, normalisation, the four monthly-cap tests, the 400 table, the plain-IP test.
+  - New, calling `resolveTickers(testEnv(), 'client-a', [...], NOW, stub.fetchFn)` with `NOW = new Date('2026-10-26T15:00:00Z')` and an empty `budget`:
+    - `added: a new ticker is fetched from 2005-01-01, stored and marked added`: status `added`; `tickers` row priority 0, `last_date` `2026-10-23`, `refreshed_on`, `added_on` and `last_used` `2026-10-26`; request row `added`, `resolved_on` `2026-10-26`; year row 2026 holds the bar.
+    - `added: a queued ticker is fetched and not counted again`: 89 rows this month (one of them `Q000` queued) and a request for `Q000` and `NEWA`: both `added`.
+    - `not_found: a 404 answers not_found at once and does not count`: with 89 rows this month, `['BADX', 'NEWA']` where `BADX` answers 404 gives `['not_found', 'added']`; request row `BADX` is `not_found`; no `tickers` row for `BADX`.
+    - `not_found resolved today is answered without a call`: request row `not_found`, `resolved_on` `2026-10-26`: status `not_found`, no Tiingo call.
+    - `a not_found from an earlier day is tried again`: `resolved_on` `2026-10-20`: one call.
+    - `queue fallback: with the budget spent a new ticker is queued`: budget row `hourKey(NOW)` 41: status `queued`, no call, request row `queued`; the client count for `client-a` is `1`.
+    - `budget shared: once a fetch is refused, the rest of the request is queued`: budget row with 40 and `['NEWA', 'NEWB', 'NEWC']`: `['added', 'queued', 'queued']`, one call.
+    - `HTTP 429 queues that ticker and the rest`: `NEWA` answers 429: `['queued', 'queued']` for `['NEWA', 'NEWB']`, one call.
+    - `client cap: the 31st fetched ticker of the day answers limit_reached and the rest of the POST still runs`: `client_requests` row (`client-a`, `2026-10-26`) with 29, `['NEWA', 'NEWB', 'NEWC']`: `['added', 'limit_reached', 'limit_reached']`, one Tiingo call, no request rows for `NEWB` and `NEWC`, `availableFrom` `2026-10-27`.
+    - `client cap: tickers that need no fetch cost nothing`: count 30, `['TSTR']` (on the list): `already_available`, count still 30.
+    - `client cap: a queued ticker counts`: budget spent, count 0, `['NEWA', 'NEWB']`: both `queued`, count `2`.
+    - `client cap: a not_found fetch counts`: `BADX` answers 404: count `1`.
+    - `client cap: one client's count does not affect another`: `client-a` at 30, `client-b` with `['NEWA']`: `added`.
+    - `client cap: availableFrom is next month when the monthly cap also applies`: 90 rows this month and `client-a` at 30, `['NEWA']`: `limit_reached`, `availableFrom` `2026-11-01`.
+    - `client cap, endpoint`: 31 POSTs of one distinct new ticker each from one IP with the budget spent: the first 30 answer `queued`, the 31st `limit_reached` with HTTP 200 and `availableFrom` tomorrow (UTC).
+    - `no 429: an over-cap POST still answers 200`.
+    - `limit_reached: at the monthly cap a new ticker is not fetched`: 90 rows this month: status `limit_reached`, no call.
+- [ ] **Step 2:** Run `npx vitest run --project worker worker/requests.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement** per spec 19.7: the handler hashes the IP (lines 22 to 23), parses the body (lines 33 to 40) and returns `c.json(await resolveTickers(c.env, client, parsed.data.tickers, new Date()))`; the per-POST counter (lines 24 to 31) goes. `resolveTickers` runs the monthly count once, then rules 1 to 6 in order, and sets `availableFrom` (next month over tomorrow over `null`). `takeClientTicker` is the 19.4 upsert on `client_requests` with `DAILY_CLIENT_TICKERS`. Add the `0004` comment line from spec 19.10 if Task 43 did not. Add the `ponytail:` notes: a budget-refused ticker still costs the client one; a client with many IPs is many clients.
+- [ ] **Step 4: Verify.** `npx vitest run --project worker` PASS; `npm run typecheck`.
+- [ ] **Step 5: Commit** `feat: load requested tickers on demand`.
+
+### Task 47: Calculate as soon as requested tickers load (spec 19.9)
+
+**Files:**
+- Create: `src/app/requestTickers.test.ts`
+- Modify: `src/app/RequestTickers.tsx` (`requestOutcome`, `onLoaded` prop, copy), `src/app/Rejections.tsx` (`onLoaded` prop), `src/app/Analyse.tsx` (`onRetry` prop, passed to `Rejections` at line 115), `src/app/App.tsx` (`onRetry`), `src/app/upload.ts` (line 55 copy)
+- Test: `src/app/requestTickers.test.ts`, `src/app/upload.test.ts`
+
+**Interfaces:**
+- Consumes: the response of Task 46.
+- Produces: `requestOutcome(body: { results: { ticker: string; status: string }[]; availableFrom: string | null }): { rerun: true } | { message: string }`; `RequestTickers({ tickers, onLoaded })`; `Rejections({ rejected, onContinue, onLoaded })`; `Analyse` prop `onRetry: () => void`.
+
+- [ ] **Step 1: Write failing tests** (pure functions only; no component tests exist).
+  - `requestTickers.test.ts`:
+    - `added re-runs`: `[{ ticker: 'ABC', status: 'added' }]` gives `{ rerun: true }`.
+    - `already_available re-runs`.
+    - `any loaded ticker re-runs`: `added` and `queued` together give `{ rerun: true }`.
+    - `queued says try again in an hour`: `[{ ticker: 'ABC', status: 'queued' }, { ticker: 'DEF', status: 'queued' }]` gives `Prices for ABC, DEF could not be loaded this hour. Try again in an hour.`
+    - `not_found names the tickers`: `Tiingo, our price source, has no prices for XYZ. Tickers listed outside the US are not covered.`
+    - `limit_reached gives the date requests open again`: `availableFrom` `2026-11-01` gives `Ticker request limit reached. Requests open again on 1 November 2026.`
+    - `limit_reached from the client cap gives tomorrow's date`: `availableFrom` `2026-10-27` gives `Ticker request limit reached. Requests open again on 27 October 2026.`
+    - `mixed answers join in the order not_found, queued, limit`: `XYZ` not_found, `ABC` queued, `DEF` limit_reached with `availableFrom` `2026-11-01`: the three sentences joined by one space.
+  - `upload.test.ts` lines 77, 169 and 209: the `prices_not_loaded` message ends `Try again in an hour.`
+  - The HTTP 429 branch in `send()` and its copy are removed (Task 46 removed the 429); the `list_full` source check in `worker/requests.test.ts` went in Task 46.
+- [ ] **Step 2:** Run `npx vitest run --project unit src/app/requestTickers.test.ts src/app/upload.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement** per spec 19.9. `send()` calls `onLoaded()` on `{ rerun: true }` and sets the message otherwise. `App.tsx`: `onRetry={() => file.kind === 'rejected' && check(file.files, file.timing, broker, false, file.exclude)}`.
+- [ ] **Step 4: Verify.** `npx vitest run --project unit src/app` PASS; `npm run typecheck`; `npm run build`. Manual check in `npm run preview` with the real key, at 360 px and 1280 px: a plain CSV with a BUY of a ticker not on the list (for example `SOFI`, if absent from `migrations/0002_allowlist.sql`) shows the rejection; pressing `Request these tickers` shows `Calculating.` and then the result. With `budget` set to 41 for the current hour in the local D1 (`npx wrangler d1 execute honest-returns --local --command "..."`), the same press shows the queued sentence. A made-up ticker (`ZZZQX`) shows the not_found sentence.
+- [ ] **Step 5: Commit** `feat: calculate as soon as requested tickers load`.
+
+### Task 48: Deploy (Owen runs the remote steps)
+
+**Files:**
+- Modify: `docs/deploy.md` (step 5: name `0004_on_demand_prices.sql` as the migration to apply first; step 7: on an empty database the cron loads priority 1 tickers and queued requests, the rest load when first used; the "Run the cron locally" note: calls count toward the shared hourly budget only when the run writes to the same database)
+
+- [ ] **Step 1:** `npm test`, `npm run typecheck`, `npm run build`, `npx wrangler deploy --dry-run`. Expected: all pass.
+- [ ] **Step 2 (Owen):** `! npx wrangler d1 migrations apply honest-returns --remote`. Expected: `0004_on_demand_prices.sql` applied. Then `! npx wrangler d1 execute honest-returns --remote --command "SELECT COUNT(*) FROM budget"` gives 0.
+- [ ] **Step 3 (Owen):** `! npm run deploy`. Migration first, deploy second (spec 19.10).
+- [ ] **Step 4 (Owen):** `curl -sI "https://honest-returns.owennyo.com/api/prices?tickers=VOO&from=2026-01-02"` shows `cache-control: public, max-age=3600`; `! npx wrangler d1 execute honest-returns --remote --command "SELECT ticker, last_used FROM tickers WHERE ticker = 'VOO'"` shows today. `npx wrangler tail` through the next 22:00 UTC run: `refresh:` lines, no CPU limit errors, no 429.
+- [ ] **Step 5:** The early-load procedure (`wrangler.cron.jsonc` with `--test-scheduled`) is unchanged; no step.
+- [ ] **Step 6: Commit** `docs: deploy steps for on-demand prices`.
+
+### Incidental complexity (fifth round)
+
+- `addTicker` and `updateTicker` are lifted out of `refresh` so three paths share one fetch-and-store; no new module.
+- `refreshStale` and `resolveTickers` take `fetchFn` and `now` only so tests can stub Tiingo and the clock, as `refresh` already does.
+- The daily cap in the budget statement (spec 19.4) and the `appendYearRows` guard (19.5) are required by the change, not features.
+- Removed: `TOTAL_TICKERS`, `list_full`, `already_queued`, and the overnight request copy.

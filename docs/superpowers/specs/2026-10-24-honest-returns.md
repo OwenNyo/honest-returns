@@ -1870,3 +1870,215 @@ None. Resolved by Owen at the checkpoint (2026-10-25):
 - Two converted statements uploaded again lose the gap notice between them (18.1.4).
 - The rest row can be large for a portfolio that held a lot of USD cash through a big rate move; it is correct, but a reader may expect it to be small. The prose names what it holds.
 - Ticker gains include trading fees; the decomposition shows fees as their own line. The two sections add up to the same total by different splits.
+
+## 19. On-demand prices with usage-based refresh (2026-10-25)
+
+Owen settled the design (decisions, "Fifth round (2026-10-25)"). Plan Tasks 43 to 48. State of the code: `dev` at 0b56d6f.
+
+### 19.1 Goal and non-goals
+
+Goal: a requested ticker loads in seconds instead of overnight when the Tiingo budget allows; a ticker served by `/api/prices` is brought up to the last US trading day before it is served, when the budget allows; the nightly cron spends its calls on tickers people use.
+
+Non-goals: US market holidays (19.3), a per-minute or rolling-window rate limiter (19.4), any change to `/api/prices` request or response shape, any change to FX loading, a way to retire tickers.
+
+### 19.2 What exists and is reused
+
+- `worker/refresh.ts`: `refresh(env, now, fetchFn)` (cron), `fetchBars` (one Tiingo call, returns `Bar[] | 'stop' | 'not_found'`), `priceWrites` (statements that append bars to year rows), `appendYearRows`, `BACKFILL_FROM = '2005-01-01'`, `TIINGO_BUDGET = 45` (per run today; 40 per UTC hour after this change, 19.4), `FX_HOUR = 22`. The queued-request step (lines 36 to 58) and the refresh step (lines 60 to 85) become two shared helpers, `addTicker` and `updateTicker`, so the cron, `/api/prices` and the request endpoint run the same fetch-and-store code.
+- `worker/prices.ts` `getPrices`: unchanged response; gains a stale step before its first SELECT and a `last_used` update.
+- `worker/requests.ts` `postTickerRequests`: the monthly count stays as it is; the per-client counter (`client_requests`, today `DAILY_CLIENT_REQUESTS = 10` POSTs per hashed IP per UTC day) changes to count tickers (19.7); the per-ticker loop changes.
+- Tests: the `worker` vitest project (`vitest.config.ts`; note the name is `worker`, not `workers`) with `@cloudflare/vitest-plugin`, migrations applied by `worker/apply-migrations.ts`. Tiingo is stubbed by passing `fetchFn` (the `stub()` helper in `worker/refresh.test.ts` lines 12 to 27); the clock by passing `now: Date`. Endpoint tests call `exports.default.fetch`, which uses the real `fetch` and `new Date()`, so they must never reach a Tiingo call (19.8).
+- `src/shared/dates.ts` `addDays`. No "last trading day" helper exists anywhere in the code; 19.3 defines one.
+
+### 19.3 Last trading day and the staleness rule
+
+`lastTradingDay(now: Date): IsoDate` in `worker/refresh.ts`:
+
+1. `d` = the UTC date of `now` minus 22 hours.
+2. While `d` is a Saturday or Sunday (`getUTCDay()` of `d` at 00:00 UTC is 6 or 0), `d = addDays(d, -1)`.
+
+Why 22 hours: the US close is 16:00 New York time, which is 20:00 UTC in summer (EDT) and 21:00 UTC in winter (EST). Tiingo publishes end-of-day bars after the close, so a day's bar is expected from 22:00 UTC that day. The existing cron starts at 22:00 UTC on the same assumption. Examples: Friday 2026-10-23 21:59 UTC gives Thursday 2026-10-22; Friday 22:00 UTC gives Friday; Saturday 10:00 UTC gives Friday; Monday 2026-10-26 10:00 UTC gives Friday 2026-10-23; Monday 22:30 UTC gives Monday.
+
+`ponytail:` weekends only, no US holiday calendar. Ceiling: on about ten holidays a year every served ticker looks stale and costs one Tiingo call per UTC day that returns no new bar. Upgrade path: a holiday list in `refresh.ts` if the wasted calls matter.
+
+A stored ticker is **stale** when both hold:
+- `last_date IS NULL OR last_date < lastTradingDay(now)`, and
+- `refreshed_on IS NULL OR refreshed_on < today` (UTC date of `now`).
+
+The second condition means a ticker is fetched at most once per UTC day, by any path. Without it a ticker Tiingo has no new bar for (a holiday, a delisting, a late publish) would cost a call on every `/api/prices` request. `ponytail:` ceiling: a ticker fetched before 22:00 UTC is not fetched again until the 00:00 UTC cron run (the 22:00 and 23:00 runs skip it too, as today), so it can be served one day behind for up to about two hours. `last_date IS NULL` (on the allowlist, never backfilled) counts as stale, so those tickers are backfilled on demand too.
+
+### 19.4 Budget
+
+New table `budget(hour TEXT PRIMARY KEY, used INTEGER NOT NULL) WITHOUT ROWID`. `hour` = `now.toISOString().slice(0, 13)`, for example `2026-10-24T23`.
+
+`takeBudget(db: D1Database, now: Date): Promise<boolean>` in `worker/refresh.ts`, called once before every Tiingo call by every path (cron, `/api/prices`, ticker requests). One statement, increment and check together:
+
+```sql
+INSERT INTO budget (hour, used) VALUES (?1, 1)
+ON CONFLICT (hour) DO UPDATE SET used = used + 1 WHERE used < ?2
+RETURNING used
+```
+
+`?1` = this hour, `?2` = `TIINGO_BUDGET` (40). A returned row means the call may go ahead; no row means the budget is spent. At 40 the statement returns no row and leaves the count at 40 (the `takeBudget` test checks it).
+
+Why 40: Tiingo's free plan allows about 50 calls an hour and 1,000 a day. On-demand calls can run in all 24 hours, so the hourly figure also sets the daily total. If Tiingo counts a rolling 24 hours, that window touches up to 25 UTC clock hours (part of the first and part of the last): 40 x 25 = 1,000, within the limit. At 41 it would be 41 x 25 = 1,025. One table and one statement cover both limits, with no separate daily check. The cron's runs drop from 45 to 40 calls (Owen, fifth round item 5 as amended, then 41 lowered to 40 in review).
+
+Order: increment and check in one statement. D1 runs each statement alone against one SQLite database, so two Workers claiming at the same moment cannot both take the 40th call: there is no read-then-write gap to race. What the design tolerates:
+- A claimed call that then fails (network error, 5xx, 429) still counts. Conservative: the hour ends with fewer real calls than 40, never more.
+- `ponytail:` buckets are UTC clock hours (accepted by Owen). If Tiingo counts a rolling hour, 40 calls at 21:59 and 40 at 22:00 are 80 within two minutes, over its 50. Tiingo then answers 429, which every path already treats as "stop", as the cron does today: the cron run ends, a ticker request answers `queued` and `/api/prices` serves what is stored. The user sees "try again in an hour" and nothing is lost. Upgrade path: one row per call with a timestamp and a count over the last 3,600 seconds, if 429s show up in `wrangler tail`.
+- Rows are never deleted. `ponytail:` 24 rows a day, about 8,800 a year, read through the primary key; prune in the 22:00 run if it ever matters.
+
+FX calls to Frankfurter do not use the budget.
+
+### 19.5 Shared fetch helpers (`worker/refresh.ts`)
+
+- `addTicker(env: Env, ticker: string, today: IsoDate, fetchFn: typeof fetch): Promise<'added' | 'not_found' | 'stop'>`: the current queued-request body (refresh.ts lines 42 to 57). Fetch from `BACKFILL_FROM`; `not_found` sets the request `not_found`, `resolved_on = today`; success inserts the ticker (`priority 0`, `last_date` = last bar or NULL, `refreshed_on = today`, `added_on = today`, `last_used = today`), writes prices and upserts the request as `added`, `resolved_on = today`, in one `DB.batch`. The request row is upserted (`INSERT ... ON CONFLICT (ticker) DO UPDATE`), because the endpoint path may have no row yet; `requested_on = CASE WHEN status = 'queued' THEN requested_on ELSE excluded.requested_on END`, the rule the queue upsert in 19.7 uses: a queued row keeps its date and any other row gets `today`. So a ticker answered `not_found` in an earlier month that loads this month counts toward this month's `MONTHLY_NEW_TICKERS`.
+- `updateTicker(env: Env, ticker: string, lastDate: IsoDate | null, today: IsoDate, fetchFn: typeof fetch): Promise<'ok' | 'stop'>`: the current refresh body (lines 70 to 84): fetch from the day after `lastDate` (or `BACKFILL_FROM`); 404 or no bars set `refreshed_on = today`; bars are written with `last_date` and `refreshed_on`.
+- `appendYearRows(existing, newRows)` drops rows dated on or before the last date already in `existing` (read from the tail of the string by `lastStoredDate(rows)`, exported from `refresh.ts` and also used by `prices.ts` for the last FX date). Needed now that a ticker can be fetched by two Workers at once (two users, or a user and the cron): without it the second writer, holding an older `last_date`, appends the same bars again and the engine sees duplicate dates. One guard in the shared function covers every caller.
+- `TIINGO_BUDGET` (40, per UTC hour, shared by every path) is exported from `refresh.ts`.
+
+### 19.6 `GET /api/prices`
+
+Before the existing SELECT, `getPrices` calls `refreshStale(c.env, tickers, new Date())`:
+
+`refreshStale(env: Env, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<void>` in `worker/refresh.ts`:
+1. `UPDATE tickers SET last_used = ?today WHERE ticker IN (...) AND (last_used IS NULL OR last_used < ?today)`: one statement for every requested ticker. Tickers not in the table match nothing. The guard writes each row at most once a day (D1 counts rows written).
+2. `SELECT ticker, last_date FROM tickers WHERE ticker IN (...)` with the 19.3 stale conditions, `ORDER BY ticker`.
+3. For each, in order: a ticker that costs a symbol is skipped (served as stored) when the month's symbols are spent (19.13); `takeBudget` false ends the loop; `updateTicker` returning `stop` ends the loop.
+
+The existing SELECT then reads what is stored, so the response is built exactly as today. A stale ticker that could not be fetched is served as stored; `asOf` already gives the older date and the client computes to it.
+
+`Cache-Control`: `public, max-age=3600` only when `asOf` is set **and** `unavailable` is empty; otherwise `no-store`. Required by the client re-run (19.9): the first answer for an upload with an unsupported ticker has a non-null `asOf`, so today it is cached for an hour and the re-run after `added` would read the cached answer and show the same rejection.
+
+`ponytail:` a request with many stale tickers waits for them one call at a time (up to 40, about 0.3 s each); it happens to the first user of a ticker each day. Cap the fetches per request if the wait shows. Workers Free allows 50 subrequests per invocation; the budget keeps every path at 40 or fewer (the 22:00 cron run adds one Frankfurter call: 41).
+
+### 19.7 `POST /api/ticker-requests`
+
+Unchanged: body validation and 400, the monthly count (`queued` or `added`, `requested_on` in the current UTC month, `MONTHLY_NEW_TICKERS = 90`, for all clients together).
+
+Changed: the per-client cap counts tickers, not POSTs. `DAILY_CLIENT_TICKERS = 30` replaces `DAILY_CLIENT_REQUESTS = 10` in `worker/requests.ts`. The same `client_requests(client, day, count)` table holds the count, so no schema change; the comment in `0003_ticker_requests.sql` is out of date and `0004` says so. The POST no longer increments anything on arrival and never answers 429 `too_many_requests`.
+
+The per-ticker loop moves into `resolveTickers(env: Env, client: string, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<{ ticker: string; status: RequestStatus }[]>` in `worker/requests.ts`, so tests can stub Tiingo. The handler hashes the IP as today and calls it with `new Date()`. `type RequestStatus = 'added' | 'queued' | 'not_found' | 'already_available' | 'limit_reached'`. Per ticker, first match wins:
+
+1. In `tickers`, or request `added`: `already_available`.
+2. Request `not_found` with `resolved_on = today`: `not_found`, no call. Stops one client from spending the budget on the same unknown symbol again and again.
+3. Not already `queued` and the month's count is at `MONTHLY_NEW_TICKERS`: `limit_reached`, nothing stored. A ticker already `queued` was counted when it was queued and is not counted again.
+4. The month's Tiingo symbols are spent (`atSymbolCap`, 19.13): `limit_reached`, nothing stored, the client is not charged.
+5. `takeClientTicker(db, client, today)` is false: `limit_reached`, nothing stored.
+6. A fetch was already refused in this POST (budget spent or `stop`), or `takeBudget` is false: upsert the request as `queued` (keep `requested_on` if already queued, else today; `resolved_on = NULL`), count it toward the month if new: `queued`.
+7. `addTicker`: `added` (count it toward the month if new), `not_found` (not counted toward the month, as today), or `stop`, handled as 6.
+
+`takeClientTicker(db: D1Database, client: string, today: IsoDate): Promise<boolean>` is the 19.4 statement on `client_requests`: `INSERT INTO client_requests (client, day, count) VALUES (?, ?, 1) ON CONFLICT (client, day) DO UPDATE SET count = count + 1 WHERE count < ? RETURNING count` with `DAILY_CLIENT_TICKERS`. It runs only for tickers that reach rule 5, so a ticker that is already available, already `not_found` today, over the monthly cap or over the symbol cap costs the client nothing. A ticker that is fetched or queued counts, because a queued ticker is fetched later by the cron or a retry. A ticker refused by the budget still counts: `ponytail:` it costs the client one of 30 without a call; simpler than claiming the budget first and handing it back.
+
+Over the cap, the POST is not rejected whole: tickers within the 30 are fetched or queued and the ones beyond answer `limit_reached`. Picked over rejecting the whole POST because the count is per ticker anyway, and a whole-POST check would need the number of tickers to be fetched before the loop runs, which depends on rules 1 to 4.
+
+`availableFrom`: the first day of next month when any ticker hit the monthly cap (rule 3) or the symbol cap (rule 4); otherwise tomorrow (UTC) when any ticker hit the client cap (rule 5); otherwise `null`. The monthly date is always the later of the two, so one date answers both.
+
+Removed: `already_queued` (a queued ticker is now retried on every request, so it answers `added` or `queued`), `list_full` and `TOTAL_TICKERS` (constants.ts line 12 and its comment; the import in requests.ts and requests.test.ts).
+
+The abuse guard. Before this change: `DAILY_CLIENT_REQUESTS = 10` POSTs per hashed IP per UTC day, each with up to 10 tickers (up to 100 tickers), and `MONTHLY_NEW_TICKERS = 90` new tickers per UTC month for all clients together. Now one client can cost at most 30 Tiingo calls a day through ticker requests, under one hour of budget (40); valid new symbols stay capped at 90 a month for everyone. The budget table, not the client cap, keeps Tiingo's limits safe: abuse can only make other users see "try again in an hour" and serve prices a day old. `ponytail:` ceiling: a client with many IPs is many clients.
+
+### 19.8 Cron (`refresh`)
+
+Same schedule `0 22,23,0-7 * * *`, same FX step, at most 40 calls per run (was 45, 19.4), now through `takeBudget` (a `false` ends the run; log `refresh: budget spent`), so calls made on demand earlier in the hour reduce the run.
+
+1. Queued requests, oldest `requested_on` first, then `ticker`: `addTicker` each. `stop` ends the run. Each is a new symbol, so once the month's symbols are spent (19.13) the rest are skipped and stay queued.
+2. Candidates:
+
+```sql
+SELECT ticker, last_date, refreshed_on FROM tickers
+WHERE (refreshed_on IS NULL OR refreshed_on < ?today)
+  AND (priority = 1 OR last_used >= ?cutoff)
+  AND (last_date IS NULL OR last_date < ?lastTradingDay)
+  AND (?capped = 0 OR refreshed_on >= ?monthStart)
+ORDER BY priority DESC, refreshed_on IS NOT NULL, refreshed_on, ticker
+LIMIT ?budget
+```
+
+`?lastTradingDay = lastTradingDay(now)` (19.3): a ticker that already has that day's bar is not a candidate, so weekend runs and tickers brought up to date on demand earlier cost no call. US holidays are not covered (19.3 has no holiday calendar). `?capped` is 1 when the month's symbols are spent (19.13); then only tickers refreshed this month are candidates, so the run is not spent on tickers it must skip. A candidate that costs a symbol is checked again before its fetch and skipped once the cap is reached during the run. `?budget` is `TIINGO_BUDGET`, not what step 1 left: queued tickers skipped at the symbol cap made no call, and `takeBudget` bounds the calls anyway.
+
+`?cutoff = addDays(today, -30)`: a ticker last served 30 days ago is refreshed; 31 days ago is not. Priority 1 (VOO, AAPL, VT, QQQ) is always a candidate and always first. Within each priority, never-refreshed first, then oldest `refreshed_on`; `ticker` only breaks ties so runs are repeatable. The whole-store alphabetical walk goes away because unused tickers are no longer candidates.
+
+`last_used IS NULL` means "not served since the migration" and is treated as unused (`NULL >= ?` is not true). Recommended, as Owen asked: on the first nights after the migration the cron refreshes only priority 1 and queued tickers; any ticker a user asks for is brought up to date on demand and joins the cron set from that request on. Alternative (rejected): set `last_used = refreshed_on` in the migration, which keeps all about 490 tickers in the cron set for 30 more days for no user benefit.
+
+Endpoint tests (`prices.test.ts`, `requests.test.ts`) insert the current and the next UTC hour into `budget` with `used = 40` in `beforeEach`, so the real `fetch` is never called and new tickers answer `queued`. The stubbed paths are tested by calling `refreshStale`, `resolveTickers` and `refresh` directly. `refresh.test.ts` deletes from `budget` in `beforeEach`.
+
+The early-load procedure (`wrangler.cron.jsonc` with `--test-scheduled`) is unchanged. On an empty database it now loads only priority 1 tickers, queued requests and FX; the rest load on demand. Production is already loaded, so nothing changes there.
+
+### 19.9 Client
+
+`src/app/RequestTickers.tsx`:
+- New prop `onLoaded: () => void`.
+- New pure function `requestOutcome(body: { results: { ticker: string; status: string }[]; availableFrom: string | null }): { rerun: true } | { messages: string[]; retry: boolean }`, tested in `src/app/requestTickers.test.ts`.
+- If any result is `added` or `already_available`: `{ rerun: true }`; the component calls `onLoaded()` and the page re-runs the upload. The running state shows the existing `Calculating.`; no new copy. If every ticker loaded, the result appears. If some did not, the new rejection lists only those, with the button again; pressing it shows their message (and a `not_found` from today costs no call, 19.7 rule 2).
+- Otherwise `{ messages, retry }`: the sentences below that apply, in this order, one paragraph per sentence. `{list}` is the tickers with that status, comma separated, in response order. `{d MMMM yyyy}` joins day and month with a non-breaking space.
+  - `not_found`: `Tiingo, our price source, has no prices for {list}. Tickers listed outside the US are not covered.`
+  - `queued`: `Prices for {list} could not be loaded right now. Try again in an hour.`
+  - `limit_reached` (with `availableFrom`): `Ticker request limit reached. Requests open again on {d MMMM yyyy}.` One sentence for both caps: the date (tomorrow for the client cap, the first of next month for the monthly cap) says which, so the copy needs neither "today" nor a number. Replaces `Monthly ticker limit reached. ...`.
+- Removed: the HTTP 429 branch and `This connection has sent too many requests today. Try again tomorrow.` (the endpoint no longer answers 429).
+- `retry` is true when any ticker is `queued`: the message shows with the button under it as `button secondary`, so the user can ask again. A failed POST (`The request could not be sent. Try again in a minute.`) does the same. With only `not_found` and `limit_reached` the button is removed.
+- While the POST runs the button reads `Requesting.` and is disabled; `.button:disabled` in `styles.css` fades it (opacity 0.6) and stops the hover lift.
+- The message is a `role="status"` element with `tabIndex={-1}` and takes focus when it appears or changes, so focus is not lost when the button goes. The `Calculating.` paragraph in `Analyse.tsx` is `role="status"` too.
+- Unchanged: the brass `Request these tickers` button (the page's one brass primary under an unsupported rejection; `Choose another file` already steps down to secondary there).
+- Removed: `list_full` copy and `Requested. New tickers usually load overnight.`
+
+`src/app/Rejections.tsx`: new required prop `onLoaded: () => void`, passed to each `RequestTickers`; the button shows for every `unsupported_tickers` rejection.
+
+`src/app/Analyse.tsx`: new prop `onRetry: () => void`, passed as `<Rejections ... onLoaded={onRetry} />`.
+
+`src/app/App.tsx`: `onRetry={() => file.kind === 'rejected' && check(file.files, file.timing, broker, false, file.exclude)}`, the same call `onExclude` makes without new tickers.
+
+`src/app/upload.ts` line 55: `prices_not_loaded` message becomes `Prices for {list} are not loaded yet. Try again in an hour.` (the on-demand path now backfills such tickers when the budget allows). `BenchmarkSelect.tsx` keeps `Try again tomorrow.`: benchmarks are priority 1 and loaded nightly.
+
+### 19.10 Migration
+
+`migrations/0004_on_demand_prices.sql`:
+
+```sql
+-- Spec 19.6: UTC date the ticker was last served by /api/prices. NULL = not served since this migration.
+ALTER TABLE tickers ADD COLUMN last_used TEXT;
+-- Spec 19.4: Tiingo calls per UTC hour, shared by the cron and on-demand fetches.
+-- Spec 19.7: client_requests.count now counts tickers fetched or queued per client per day, not POSTs.
+CREATE TABLE budget (
+  hour TEXT PRIMARY KEY,   -- 'YYYY-MM-DDTHH', UTC
+  used INTEGER NOT NULL
+) WITHOUT ROWID;
+```
+
+Production: Owen runs `! npx wrangler d1 migrations apply honest-returns --remote` before `npm run deploy`. The old Worker ignores the new column and table, so migrating first is safe; deploying first is not (the new code reads `last_used` and `budget`).
+
+### 19.11 Assumptions
+
+1. Tiingo's free limits are still about 50 calls an hour, 1,000 a day and 500 distinct symbols a month (spec 14), and a day's bar is published by 22:00 UTC.
+2. D1 runs one statement at a time per database, so the single-statement claim in 19.4 cannot overshoot.
+3. A request that loads some tickers and not others re-runs the upload (Owen: "after an immediate added, re-run"); the remaining tickers' message appears on the next press.
+4. 40 calls per UTC hour (Owen, amending his 45; lowered from 41 in review) keeps any rolling 24 hours at or under 1,000 with no separate daily check.
+5. `already_queued` is folded into `queued`.
+6. Over the client cap a POST is answered ticker by ticker (`limit_reached` beyond 30), not rejected whole.
+7. Tiingo counts a symbol that answers 404 toward its 500, so `not_found` requests count in 19.13. The symbol-cap rule sits after the monthly new-ticker cap and before the client cap (19.7 rule 4), so a refused ticker does not cost the client one of its 30.
+
+### 19.12 Risks
+
+- Distinct symbols: Tiingo's free plan counts about 500 distinct symbols a month. `TOTAL_TICKERS` capped the list at 500; now the count is the tickers used (plus priority 1 and new requests) over 30 days. The guard in 19.13 stops new symbols at 480 a month; the tickers people use keep being refreshed.
+- A request-path backfill parses about 20 years of daily bars inside a user request. The cron already did 45 of these per run within the CPU limit, so one per request should fit; watch `wrangler tail` for CPU errors after deploy.
+- A user waits for stale fetches before their first result of the day (19.6).
+- Clock-hour buckets against a possible rolling hour at Tiingo (19.4).
+
+### 19.13 Monthly distinct-symbol limit
+
+Tiingo's free plan allows 500 distinct symbols a month. `MONTHLY_SYMBOLS = 480` in `worker/refresh.ts`, next to `TIINGO_BUDGET`.
+
+A ticker costs a symbol this month when its `tickers.refreshed_on` is NULL or before the first of the current UTC month. A requested ticker that is not in `tickers` always does. Before any Tiingo fetch of such a ticker, `atSymbolCap(db, today)` counts the symbols used this month:
+
+```sql
+SELECT (SELECT COUNT(*) FROM tickers WHERE refreshed_on >= ?monthStart)
+     + (SELECT COUNT(*) FROM ticker_requests WHERE status = 'not_found' AND resolved_on >= ?monthStart)
+```
+
+At 480 or more the fetch is refused, and no budget is claimed:
+- Cron (19.8): queued requests are skipped and stay queued; the candidate query keeps only tickers refreshed this month.
+- `refreshStale` (19.6): the ticker is served as stored.
+- `resolveTickers` (19.7 rule 4): `limit_reached`, nothing stored, `availableFrom` the first of next month.
+
+A ticker already refreshed this month never reaches the check, so the tickers in use keep being refreshed at the cap.
+
+`ponytail:` check then fetch, so two Workers can both pass at 479 and fetch two new symbols; the 20-symbol margin under 500 covers that race. A `not_found` request retried later in the same month is checked again although Tiingo already counted it; near the cap it answers `limit_reached` one symbol early.
