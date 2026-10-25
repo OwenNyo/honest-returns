@@ -117,20 +117,20 @@ test.each([
   expect(lastTradingDay(new Date(now))).toBe(day);
 });
 
-// Task 43, spec 19.4: one budget row per UTC hour, 41 calls.
-test('takeBudget allows 41 calls in an hour and refuses the 42nd', async () => {
-  for (let i = 0; i < 41; i++) expect(await takeBudget(env.DB, NIGHT)).toBe(true);
+// Task 43, spec 19.4: one budget row per UTC hour, 40 calls.
+test('takeBudget allows 40 calls in an hour and refuses the 41st', async () => {
+  for (let i = 0; i < 40; i++) expect(await takeBudget(env.DB, NIGHT)).toBe(true);
   expect(await takeBudget(env.DB, NIGHT)).toBe(false);
-  expect(await budgetUsed(NIGHT)).toBe(41);
+  expect(await budgetUsed(NIGHT)).toBe(40);
 });
 
 test('takeBudget starts again in the next hour', async () => {
-  for (let i = 0; i < 41; i++) await takeBudget(env.DB, NIGHT);
+  for (let i = 0; i < 40; i++) await takeBudget(env.DB, NIGHT);
   expect(await takeBudget(env.DB, new Date(NIGHT.getTime() + 3_600_000))).toBe(true);
 });
 
 test('budget shared: calls made on demand earlier in the hour reduce the cron run', async () => {
-  await setBudget(NIGHT, 36);
+  await setBudget(NIGHT, 35);
   await seedTickers(Array.from({ length: 10 }, (_, i) => [`P${i}`, 1, null, null] as [string, number, null, null]));
   const s = stub({});
   const out = await refresh(testEnv(), NIGHT, s.fetchFn);
@@ -197,26 +197,120 @@ test('rows across a year boundary go to two year rows, keep existing rows and sk
   expect((await tickerRow('TSTA'))!.last_date).toBe('2021-01-04');
 });
 
-test('tickers are refreshed by priority, then never-refreshed, then oldest refreshed_on; today is skipped', async () => {
+// Task 44, spec 19.8: priority 1 always, other tickers only when used in the last 30 days.
+test('priority 1 first, then never-refreshed, then oldest refreshed_on; today is skipped', async () => {
   await seedTickers([
     ['OLD2', 0, '2026-10-01', '2026-10-10'],
     ['TODAY', 1, '2026-10-23', '2026-10-24'],
     ['OLD1', 0, '2026-10-01', '2026-10-01'],
     ['NEW', 0, null, null],
     ['PRIO', 1, '2026-10-01', '2026-10-20'],
+    ['UNUSED', 0, '2026-08-31', '2026-09-01', null],
   ]);
   const s = stub({});
   await refresh(testEnv(), NIGHT, s.fetchFn);
   expect(s.tiingoTickers()).toEqual(['PRIO', 'NEW', 'OLD1', 'OLD2']);
 });
 
-test('at most 41 Tiingo calls are made in one run', async () => {
+test('30-day window: a ticker last used 30 days ago is refreshed, 31 days ago is not', async () => {
+  await seedTickers([
+    ['D30', 0, '2026-09-30', '2026-10-01', '2026-09-24'],
+    ['D31', 0, '2026-09-30', '2026-10-01', '2026-09-23'],
+  ]);
+  const s = stub({});
+  await refresh(testEnv(), NIGHT, s.fetchFn);
+  expect(s.tiingoTickers()).toEqual(['D30']);
+});
+
+// Spec 19.8: NIGHT is Saturday 2026-10-24, so the last trading day is Friday 2026-10-23.
+test('a ticker that already has the last trading day is not a candidate', async () => {
+  await seedTickers([
+    ['DONE', 0, '2026-10-23', '2026-10-20'],
+    ['BEHIND', 0, '2026-10-22', '2026-10-20'],
+  ]);
+  const s = stub({});
+  await refresh(testEnv(), NIGHT, s.fetchFn);
+  expect(s.tiingoTickers()).toEqual(['BEHIND']);
+});
+
+test('NULL last_used is not refreshed', async () => {
+  await seedTickers([['TSTA', 0, null, null, null]]);
+  const s = stub({});
+  await refresh(testEnv(), NIGHT, s.fetchFn);
+  expect(s.tiingoTickers()).toEqual([]);
+});
+
+test('priority 1 always: refreshed with NULL last_used', async () => {
+  await seedTickers([['PRIO', 1, null, null, null]]);
+  const s = stub({});
+  await refresh(testEnv(), NIGHT, s.fetchFn);
+  expect(s.tiingoTickers()).toEqual(['PRIO']);
+});
+
+test('priority 1 comes before a used ticker with an older refreshed_on', async () => {
+  await seedTickers([
+    ['USED', 0, '2026-08-31', '2026-09-01', '2026-10-24'],
+    ['PRIO', 1, '2026-10-19', '2026-10-20', null],
+  ]);
+  const s = stub({});
+  await refresh(testEnv(), NIGHT, s.fetchFn);
+  expect(s.tiingoTickers()).toEqual(['PRIO', 'USED']);
+});
+
+// Spec 19.13: at 480 symbols this month the cron fetches only tickers already refreshed this month.
+describe('monthly symbol cap', () => {
+  const clearRequests = () => env.DB.prepare('DELETE FROM ticker_requests').run();
+  beforeEach(clearRequests);
+  afterEach(clearRequests);
+  // n requests answered not_found this month, each one symbol used.
+  const useSymbols = (n: number) =>
+    env.DB.batch(
+      Array.from({ length: n }, (_, i) =>
+        env.DB.prepare("INSERT INTO ticker_requests (ticker, requested_on, status, resolved_on) VALUES (?, '2026-10-02', 'not_found', '2026-10-02')").bind(`N${i}`),
+      ),
+    );
+
+  test('at the cap a new symbol and a queued request are skipped; a symbol refreshed this month is fetched', async () => {
+    await useSymbols(479);
+    await seedTickers([
+      ['THIS', 0, '2026-10-20', '2026-10-01'], // refreshed this month: the 480th symbol
+      ['LAST', 0, '2026-09-29', '2026-09-30'],
+      ['NEW', 0, null, null],
+    ]);
+    await env.DB.prepare("INSERT INTO ticker_requests (ticker, requested_on, status) VALUES ('QNEW', '2026-10-20', 'queued')").run();
+    const s = stub({});
+    await refresh(testEnv(), NIGHT, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual(['THIS']);
+  });
+
+  test('not_found rows alone reach the cap', async () => {
+    await useSymbols(480);
+    await seedTickers([['NEW', 0, null, null]]);
+    const s = stub({});
+    await refresh(testEnv(), NIGHT, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual([]);
+  });
+
+  test('a fetch that reaches the cap during the run stops further new symbols', async () => {
+    await useSymbols(478);
+    await seedTickers([
+      ['THIS', 0, '2026-10-20', '2026-10-01'],
+      ['LAST', 0, '2026-09-29', '2026-09-30'],
+      ['NEW', 0, null, null],
+    ]);
+    const s = stub({});
+    await refresh(testEnv(), NIGHT, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual(['NEW', 'THIS']);
+  });
+});
+
+test('at most 40 Tiingo calls are made in one run', async () => {
   await seedTickers(Array.from({ length: 50 }, (_, i) => [`T${String(i).padStart(2, '0')}`, 0, null, null] as [string, number, null, null]));
   const s = stub({});
   await refresh(testEnv(), NIGHT, s.fetchFn);
-  expect(s.tiingoTickers()).toHaveLength(41);
+  expect(s.tiingoTickers()).toHaveLength(40);
   const left = await env.DB.prepare('SELECT COUNT(*) AS n FROM tickers WHERE refreshed_on IS NULL').first<{ n: number }>();
-  expect(left!.n).toBe(9);
+  expect(left!.n).toBe(10);
 });
 
 test('an empty Tiingo response sets refreshed_on only', async () => {
@@ -285,7 +379,7 @@ test('a 404 sets refreshed_on and the run continues', async () => {
   expect(out.stoppedOn).toBeUndefined();
 });
 
-// Task 20, spec 9.3 step 4 and 10.8: queued ticker requests are fetched first, within the same 41-call budget (spec 19.4).
+// Task 20, spec 9.3 step 4 and 10.8: queued ticker requests are fetched first, within the same 40-call budget (spec 19.4).
 describe('queued ticker requests', () => {
   const clearRequests = () => env.DB.prepare('DELETE FROM ticker_requests').run();
   beforeEach(clearRequests);
@@ -312,21 +406,21 @@ describe('queued ticker requests', () => {
     expect(s.tiingoTickers()).toEqual(['QNEW1', 'QNEW2', 'TSTA']);
   });
 
-  test('queued requests and refreshes share the 41-call budget', async () => {
-    await seedRequests(Array.from({ length: 40 }, (_, i) => [`Q${String(i).padStart(2, '0')}`, '2026-10-01', 'queued'] as [string, string, string]));
+  test('queued requests and refreshes share the 40-call budget', async () => {
+    await seedRequests(Array.from({ length: 39 }, (_, i) => [`Q${String(i).padStart(2, '0')}`, '2026-10-01', 'queued'] as [string, string, string]));
     await seedTickers(Array.from({ length: 10 }, (_, i) => [`T${i}`, 0, null, null] as [string, number, null, null]));
     const s = stub({});
     await refresh(testEnv(), NIGHT, s.fetchFn);
     const called = s.tiingoTickers();
-    expect(called).toHaveLength(41);
-    expect(called.slice(0, 40).every((t) => t.startsWith('Q'))).toBe(true);
+    expect(called).toHaveLength(40);
+    expect(called.slice(0, 39).every((t) => t.startsWith('Q'))).toBe(true);
   });
 
-  test('more than 41 queued requests leave the rest queued', async () => {
+  test('more than 40 queued requests leave the rest queued', async () => {
     await seedRequests(Array.from({ length: 50 }, (_, i) => [`Q${String(i).padStart(2, '0')}`, '2026-10-01', 'queued'] as [string, string, string]));
     await refresh(testEnv(), NIGHT, stub({}).fetchFn);
     const left = await env.DB.prepare("SELECT COUNT(*) AS n FROM ticker_requests WHERE status = 'queued'").first<{ n: number }>();
-    expect(left!.n).toBe(9);
+    expect(left!.n).toBe(10);
   });
 
   test('a queued ticker is backfilled from 2005-01-01', async () => {
@@ -372,3 +466,4 @@ describe('queued ticker requests', () => {
     expect(await requestRow('QNEW')).toEqual({ status: 'queued', resolved_on: null });
   });
 });
+

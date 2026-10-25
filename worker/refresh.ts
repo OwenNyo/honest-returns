@@ -5,8 +5,11 @@ import type { Env } from './index';
 import { type Bar, tiingoRequest, toBars } from './tiingo';
 
 const BACKFILL_FROM = '2005-01-01';
-// Spec 19.4: Tiingo calls per UTC hour, shared by the cron, /api/prices and ticker requests. 41 x 24 = 984, under 1,000 a day.
-export const TIINGO_BUDGET = 41;
+// Spec 19.4: Tiingo calls per UTC hour, shared by the cron, /api/prices and ticker requests. A rolling 24 hours touches
+// at most 25 clock hours: 40 x 25 = 1,000, Tiingo's daily limit.
+export const TIINGO_BUDGET = 40;
+// Spec 19.13: distinct Tiingo symbols per UTC month, 20 under the free plan's 500.
+export const MONTHLY_SYMBOLS = 480;
 const FX_HOUR = 22;
 
 // The date of the last row of a stored JSON array of rows, read from the tail of the string without JSON.parse.
@@ -33,7 +36,7 @@ export function lastTradingDay(now: Date): IsoDate {
 
 // Spec 19.4: claims one Tiingo call from this UTC hour's budget; increment and check in one statement, so two
 // Workers cannot both take the last call. false = budget spent.
-// ponytail: UTC clock-hour buckets. If Tiingo counts a rolling hour, 41 calls at 21:59 and 41 at 22:00 exceed its 50 and
+// ponytail: UTC clock-hour buckets. If Tiingo counts a rolling hour, 40 calls at 21:59 and 40 at 22:00 exceed its 50 and
 // it answers 429, which every path treats as 'stop'. Upgrade: one row per call, counted over the last 3,600 seconds.
 export async function takeBudget(db: D1Database, now: Date): Promise<boolean> {
   const row = await db
@@ -41,6 +44,24 @@ export async function takeBudget(db: D1Database, now: Date): Promise<boolean> {
     .bind(now.toISOString().slice(0, 13), TIINGO_BUDGET)
     .first();
   return row !== null;
+}
+
+// Spec 19.13: a ticker not refreshed since the first of this UTC month costs a symbol when fetched.
+const monthStart = (today: IsoDate) => today.slice(0, 8) + '01';
+const newSymbol = (refreshedOn: string | null, today: IsoDate) => !refreshedOn || refreshedOn < monthStart(today);
+
+// Spec 19.13: true when this month's symbols are spent: tickers refreshed this month plus requests answered not_found
+// this month. Checked before every fetch of a new symbol.
+// ponytail: check then fetch, so two Workers can both pass at 479; the 20-symbol margin under 500 covers that race.
+export async function atSymbolCap(db: D1Database, today: IsoDate): Promise<boolean> {
+  const row = await db
+    .prepare(
+      'SELECT (SELECT COUNT(*) FROM tickers WHERE refreshed_on >= ?1) + ' +
+        "(SELECT COUNT(*) FROM ticker_requests WHERE status = 'not_found' AND resolved_on >= ?1) AS n",
+    )
+    .bind(monthStart(today))
+    .first<{ n: number }>();
+  return row!.n >= MONTHLY_SYMBOLS;
 }
 
 const byYear = <T extends [string, ...string[]]>(rows: T[]) => {
@@ -73,21 +94,29 @@ export async function refresh(
     return { fetched, fxUpdated };
   };
   for (const { ticker } of queued.results) {
+    if (await atSymbolCap(db, today)) break; // every queued ticker is a new symbol (spec 19.13)
     if (!(await takeBudget(db, now))) return spent();
     const got = await addTicker(env, ticker, today, fetchFn);
     if (got === 'stop') return { fetched, fxUpdated, stoppedOn: ticker };
     if (got === 'added') fetched.push(ticker);
   }
 
+  // Spec 19.8: priority 1 always, other tickers only when served in the last 30 days (NULL last_used = unused).
+  // A ticker that already has the last trading day's bar (fetched on demand, or a weekend run) is skipped.
+  // Spec 19.13: at the symbol cap only tickers refreshed this month are candidates, so the run is not spent on skips.
+  // LIMIT is the whole budget, not what the queued step left: queued tickers skipped at the cap made no call.
   const due = await db
     .prepare(
-      'SELECT ticker, last_date FROM tickers WHERE refreshed_on IS NULL OR refreshed_on < ? ' +
-        'ORDER BY priority DESC, refreshed_on IS NOT NULL, refreshed_on, ticker LIMIT ?',
+      'SELECT ticker, last_date, refreshed_on FROM tickers WHERE (refreshed_on IS NULL OR refreshed_on < ?1) ' +
+        'AND (priority = 1 OR last_used >= ?2) AND (last_date IS NULL OR last_date < ?4) ' +
+        'AND (?5 = 0 OR refreshed_on >= ?6) ' +
+        'ORDER BY priority DESC, refreshed_on IS NOT NULL, refreshed_on, ticker LIMIT ?3',
     )
-    .bind(today, TIINGO_BUDGET - queued.results.length)
-    .all<{ ticker: string; last_date: string | null }>();
+    .bind(today, addDays(today, -30), TIINGO_BUDGET, lastTradingDay(now), (await atSymbolCap(db, today)) ? 1 : 0, monthStart(today))
+    .all<{ ticker: string; last_date: string | null; refreshed_on: string | null }>();
 
-  for (const { ticker, last_date } of due.results) {
+  for (const { ticker, last_date, refreshed_on } of due.results) {
+    if (newSymbol(refreshed_on, today) && (await atSymbolCap(db, today))) continue;
     if (!(await takeBudget(db, now))) return spent();
     if ((await updateTicker(env, ticker, last_date, today, fetchFn)) === 'stop') return { fetched, fxUpdated, stoppedOn: ticker };
     fetched.push(ticker);
