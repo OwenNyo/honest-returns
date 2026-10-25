@@ -1,16 +1,46 @@
+import type { IsoDate } from '../src/engine/types';
 import { addDays } from '../src/shared/dates';
 import { frankfurterUrl, toFxRows } from './frankfurter';
 import type { Env } from './index';
 import { type Bar, tiingoRequest, toBars } from './tiingo';
 
 const BACKFILL_FROM = '2005-01-01';
-const TIINGO_BUDGET = 45; // per run; 10 runs a night stays under 50 an hour and 1,000 a day
+// Spec 19.4: Tiingo calls per UTC hour, shared by the cron, /api/prices and ticker requests. 41 x 24 = 984, under 1,000 a day.
+export const TIINGO_BUDGET = 41;
 const FX_HOUR = 22;
 
+// The date of the last row of a stored JSON array of rows, read from the tail of the string without JSON.parse.
+export const lastStoredDate = (rows: string) => /"(\d{4}-\d{2}-\d{2})"[^\]]*\]\]$/.exec(rows)?.[1];
+
 // Appends rows to a stored JSON array by string concatenation (no parse of the existing text).
+// Rows dated on or before the last stored row are dropped: two Workers can fetch the same ticker at once (spec 19.5).
+// ponytail: a concurrent duplicate fetch is tolerated here, not prevented; the second writer's call is wasted, not stored twice.
 export function appendYearRows(existing: string | null, newRows: unknown[][]): string {
-  const added = JSON.stringify(newRows);
-  return existing ? existing.slice(0, -1) + ',' + added.slice(1) : added;
+  if (!existing) return JSON.stringify(newRows);
+  const last = lastStoredDate(existing);
+  const rows = last ? newRows.filter((r) => (r[0] as string) > last) : newRows;
+  return rows.length ? existing.slice(0, -1) + ',' + JSON.stringify(rows).slice(1) : existing;
+}
+
+// Spec 19.3: a day's bar is expected from 22:00 UTC (after the 16:00 New York close), so now minus 22 hours, back over weekends.
+// ponytail: weekends only, no US holiday calendar; on about ten holidays a year served tickers look stale and cost
+// one call per UTC day with no new bar. Add a holiday list here if those wasted calls matter.
+export function lastTradingDay(now: Date): IsoDate {
+  let d = new Date(now.getTime() - 22 * 3_600_000).toISOString().slice(0, 10);
+  while ([0, 6].includes(new Date(d).getUTCDay())) d = addDays(d, -1);
+  return d;
+}
+
+// Spec 19.4: claims one Tiingo call from this UTC hour's budget; increment and check in one statement, so two
+// Workers cannot both take the last call. false = budget spent.
+// ponytail: UTC clock-hour buckets. If Tiingo counts a rolling hour, 41 calls at 21:59 and 41 at 22:00 exceed its 50 and
+// it answers 429, which every path treats as 'stop'. Upgrade: one row per call, counted over the last 3,600 seconds.
+export async function takeBudget(db: D1Database, now: Date): Promise<boolean> {
+  const row = await db
+    .prepare('INSERT INTO budget (hour, used) VALUES (?1, 1) ON CONFLICT (hour) DO UPDATE SET used = used + 1 WHERE used < ?2 RETURNING used')
+    .bind(now.toISOString().slice(0, 13), TIINGO_BUDGET)
+    .first();
+  return row !== null;
 }
 
 const byYear = <T extends [string, ...string[]]>(rows: T[]) => {
@@ -22,7 +52,7 @@ const byYear = <T extends [string, ...string[]]>(rows: T[]) => {
   return out;
 };
 
-// Spec 9.3. Sequential fetches; HTTP 429, 5xx or a network error stops the run.
+// Spec 9.3 and 19.8. Sequential fetches; HTTP 429, 5xx or a network error stops the run, and so does a spent budget.
 export async function refresh(
   env: Env,
   now: Date,
@@ -38,23 +68,15 @@ export async function refresh(
     .bind(TIINGO_BUDGET)
     .all<{ ticker: string }>();
   const fetched: string[] = [];
+  const spent = () => {
+    console.warn('refresh: budget spent');
+    return { fetched, fxUpdated };
+  };
   for (const { ticker } of queued.results) {
-    const got = await fetchBars(ticker, BACKFILL_FROM, null, env.TIINGO_TOKEN, fetchFn);
+    if (!(await takeBudget(db, now))) return spent();
+    const got = await addTicker(env, ticker, today, fetchFn);
     if (got === 'stop') return { fetched, fxUpdated, stoppedOn: ticker };
-    const resolve = (status: string) =>
-      db.prepare('UPDATE ticker_requests SET status = ?, resolved_on = ? WHERE ticker = ?').bind(status, today, ticker);
-    if (got === 'not_found') {
-      await resolve('not_found').run();
-      continue;
-    }
-    fetched.push(ticker);
-    await db.batch([
-      db
-        .prepare('INSERT OR IGNORE INTO tickers (ticker, priority, last_date, refreshed_on, added_on) VALUES (?, 0, ?, ?, ?)')
-        .bind(ticker, got.at(-1)?.[0] ?? null, today, today),
-      ...(await priceWrites(db, ticker, got)),
-      resolve('added'),
-    ]);
+    if (got === 'added') fetched.push(ticker);
   }
 
   const due = await db
@@ -65,25 +87,68 @@ export async function refresh(
     .bind(today, TIINGO_BUDGET - queued.results.length)
     .all<{ ticker: string; last_date: string | null }>();
 
-  const markRefreshed = (t: string) => db.prepare('UPDATE tickers SET refreshed_on = ? WHERE ticker = ?').bind(today, t);
   for (const { ticker, last_date } of due.results) {
-    const bars = await fetchBars(ticker, last_date ? addDays(last_date, 1) : BACKFILL_FROM, last_date, env.TIINGO_TOKEN, fetchFn);
-    if (bars === 'stop') return { fetched, fxUpdated, stoppedOn: ticker };
-    if (bars === 'not_found') {
-      await markRefreshed(ticker).run();
-      continue;
-    }
+    if (!(await takeBudget(db, now))) return spent();
+    if ((await updateTicker(env, ticker, last_date, today, fetchFn)) === 'stop') return { fetched, fxUpdated, stoppedOn: ticker };
     fetched.push(ticker);
-    if (bars.length === 0) {
-      await markRefreshed(ticker).run();
-      continue;
-    }
-    await db.batch([
-      ...(await priceWrites(db, ticker, bars)),
-      db.prepare('UPDATE tickers SET last_date = ?, refreshed_on = ? WHERE ticker = ?').bind(bars[bars.length - 1][0], today, ticker),
-    ]);
   }
   return { fetched, fxUpdated };
+}
+
+// Spec 19.5: backfills a new ticker and records the request as added or not_found. The request row is upserted
+// (requested_on kept while queued, else today, so a not_found from an earlier month counts in this month's cap), because
+// the request endpoint may have no row yet. The caller claims the budget.
+export async function addTicker(
+  env: Env,
+  ticker: string,
+  today: IsoDate,
+  fetchFn: typeof fetch,
+): Promise<'added' | 'not_found' | 'stop'> {
+  const db = env.DB;
+  const got = await fetchBars(ticker, BACKFILL_FROM, null, env.TIINGO_TOKEN, fetchFn);
+  if (got === 'stop') return 'stop';
+  const resolve = (status: string) =>
+    db
+      .prepare(
+        'INSERT INTO ticker_requests (ticker, requested_on, status, resolved_on) VALUES (?1, ?2, ?3, ?2) ' +
+          'ON CONFLICT (ticker) DO UPDATE SET status = excluded.status, resolved_on = excluded.resolved_on, ' +
+          "requested_on = CASE WHEN status = 'queued' THEN requested_on ELSE excluded.requested_on END",
+      )
+      .bind(ticker, today, status);
+  if (got === 'not_found') {
+    await resolve('not_found').run();
+    return 'not_found';
+  }
+  await db.batch([
+    db
+      .prepare('INSERT OR IGNORE INTO tickers (ticker, priority, last_date, refreshed_on, added_on, last_used) VALUES (?1, 0, ?2, ?3, ?3, ?3)')
+      .bind(ticker, got.at(-1)?.[0] ?? null, today),
+    ...(await priceWrites(db, ticker, got)),
+    resolve('added'),
+  ]);
+  return 'added';
+}
+
+// Spec 19.5: brings a stored ticker up to date from the day after lastDate. The caller claims the budget.
+export async function updateTicker(
+  env: Env,
+  ticker: string,
+  lastDate: IsoDate | null,
+  today: IsoDate,
+  fetchFn: typeof fetch,
+): Promise<'ok' | 'stop'> {
+  const db = env.DB;
+  const bars = await fetchBars(ticker, lastDate ? addDays(lastDate, 1) : BACKFILL_FROM, lastDate, env.TIINGO_TOKEN, fetchFn);
+  if (bars === 'stop') return 'stop';
+  if (bars === 'not_found' || bars.length === 0) {
+    await db.prepare('UPDATE tickers SET refreshed_on = ? WHERE ticker = ?').bind(today, ticker).run();
+    return 'ok';
+  }
+  await db.batch([
+    ...(await priceWrites(db, ticker, bars)),
+    db.prepare('UPDATE tickers SET last_date = ?, refreshed_on = ? WHERE ticker = ?').bind(bars[bars.length - 1][0], today, ticker),
+  ]);
+  return 'ok';
 }
 
 // One Tiingo call. 'stop' on HTTP 429, 5xx or a network error (the run ends); 'not_found' on 404;
