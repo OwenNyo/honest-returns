@@ -8,6 +8,4 @@ export const DAYS_PER_YEAR = 365;
 // ponytail: a fixed 90-day floor for volatility, because a yearly figure from a few days says little; make it a per-page choice only if users ask.
 export const MIN_VOLATILITY_DAYS = 90;
 export const MONTHLY_NEW_TICKERS = 90; // spec 10.8
-// Tiingo's free plan allows 500 distinct symbols a month and every listed ticker is fetched nightly, so the list itself is capped.
-export const TOTAL_TICKERS = 500;
 export const REPO_URL = 'https://github.com/OwenNyo/honest-returns';

@@ -1957,7 +1957,7 @@ Unchanged: body validation and 400, the monthly count (`queued` or `added`, `req
 
 Changed: the per-client cap counts tickers, not POSTs. `DAILY_CLIENT_TICKERS = 30` replaces `DAILY_CLIENT_REQUESTS = 10` in `worker/requests.ts`. The same `client_requests(client, day, count)` table holds the count, so no schema change; the comment in `0003_ticker_requests.sql` is out of date and `0004` says so. The POST no longer increments anything on arrival and never answers 429 `too_many_requests`.
 
-The per-ticker loop moves into `resolveTickers(env: Env, client: string, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<{ ticker: string; status: RequestStatus }[]>` in `worker/requests.ts`, so tests can stub Tiingo. The handler hashes the IP as today and calls it with `new Date()`. `type RequestStatus = 'added' | 'queued' | 'not_found' | 'already_available' | 'limit_reached'`. Per ticker, first match wins:
+The per-ticker loop moves into `resolveTickers(env: Env, client: string, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<{ results: { ticker: string; status: RequestStatus }[]; availableFrom: IsoDate | null }>` in `worker/requests.ts`, so tests can stub Tiingo. The handler hashes the IP as today, removes repeated tickers from the body (a `Set`, as `PricesQuery` does), and calls it with `new Date()`, so a ticker listed twice gets one result and costs the client one. `type RequestStatus = 'added' | 'queued' | 'not_found' | 'already_available' | 'limit_reached'`. Per ticker, first match wins:
 
 1. In `tickers`, or request `added`: `already_available`.
 2. Request `not_found` with `resolved_on = today`: `not_found`, no call. Stops one client from spending the budget on the same unknown symbol again and again.
