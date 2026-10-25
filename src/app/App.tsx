@@ -117,6 +117,7 @@ export function App() {
         onTiming={(t) => file.kind === 'result' && check(file.files, t, broker, file.saved, file.out.excluded?.tickers ?? [])}
         // Keeps an earlier exclusion, so continuing past a second rejection does not bring the first back.
         onExclude={(tickers) => file.kind === 'rejected' && check(file.files, file.timing, broker, false, [...file.exclude, ...tickers])}
+        onRetry={() => file.kind === 'rejected' && check(file.files, file.timing, broker, false, file.exclude)}
         onRemove={removeSaved}
       />
     );

@@ -626,6 +626,13 @@ a {
     transform: none;
   }
 }
+/* A button waiting on a request is faded and does not lift. */
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  transform: none;
+  box-shadow: none;
+}
 .link-button {
   min-height: 44px;
   padding: 0;
@@ -662,10 +669,13 @@ a {
 .rejections li + li {
   margin-top: 0.25rem;
 }
-/* The request status replaces its button in the actions row, so it keeps the button's height. */
+/* The request status replaces its button in the actions row, so it keeps the button's height; one paragraph per sentence.
+   It takes the whole row, so a retry button sits under it. */
 .rejections .actions > [role='status'] {
-  display: flex;
-  align-items: center;
+  flex-basis: 100%;
+  display: grid;
+  align-content: center;
+  gap: 0.25rem;
   min-height: 48px;
 }
 /* On phones the Analyse buttons stack at one width instead of some wrapping and some not. */

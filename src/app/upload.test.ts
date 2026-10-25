@@ -74,7 +74,7 @@ test('unavailable tickers produce unsupported_tickers and prices_not_loaded with
     kind: 'rejected',
     rejected: [
       { line: null, code: 'unsupported_tickers', message: 'These tickers are not supported yet: XYZ, ZZZ.', tickers: ['XYZ', 'ZZZ'] },
-      { line: null, code: 'prices_not_loaded', message: 'Prices for ABC, QRS are not loaded yet. Try again tomorrow.', tickers: ['ABC', 'QRS'] },
+      { line: null, code: 'prices_not_loaded', message: 'Prices for ABC, QRS are not loaded yet. Try again in an hour.', tickers: ['ABC', 'QRS'] },
     ],
   });
 });
@@ -166,7 +166,7 @@ const result = (out: Awaited<ReturnType<typeof runUpload>>) => {
 test('without exclude, an unavailable ticker rejects with prices_not_loaded carrying its tickers', async () => {
   expect(await runUpload(PARTIAL.join('\n'), stubFetch(partialBody()))).toEqual({
     kind: 'rejected',
-    rejected: [{ line: null, code: 'prices_not_loaded', message: 'Prices for ZZZ are not loaded yet. Try again tomorrow.', tickers: ['ZZZ'] }],
+    rejected: [{ line: null, code: 'prices_not_loaded', message: 'Prices for ZZZ are not loaded yet. Try again in an hour.', tickers: ['ZZZ'] }],
   });
 });
 
@@ -206,7 +206,7 @@ test('an unavailable ticker not in exclude still rejects, naming only that ticke
   ]);
   expect(await runUpload(csv, stubFetch(body), 'start', ['ZZZ'])).toEqual({
     kind: 'rejected',
-    rejected: [{ line: null, code: 'prices_not_loaded', message: 'Prices for YYY are not loaded yet. Try again tomorrow.', tickers: ['YYY'] }],
+    rejected: [{ line: null, code: 'prices_not_loaded', message: 'Prices for YYY are not loaded yet. Try again in an hour.', tickers: ['YYY'] }],
   });
 });
 

@@ -7,9 +7,18 @@ const prefix = (r: Rejection) =>
   r.file ? (r.line === null ? `${r.file}: ` : `${r.file}, line ${r.line}: `) : r.line === null ? '' : `Line ${r.line}: `;
 
 // Spec 16.6: only availability rejections carry tickers; when all do, the user can leave those holdings out.
-export function Rejections({ rejected, onContinue }: { rejected: Rejection[]; onContinue?: (tickers: string[]) => void }) {
+export function Rejections({
+  rejected,
+  onContinue,
+  onLoaded,
+}: {
+  rejected: Rejection[];
+  onContinue?: (tickers: string[]) => void;
+  onLoaded: () => void;
+}) {
   const unsupported = rejected.filter((r) => r.code === 'unsupported_tickers');
   const canContinue = onContinue && rejected.every((r) => r.tickers);
+  const canRequest = unsupported.length > 0;
   return (
     <div className="rejections" role="alert">
       <div>
@@ -26,11 +35,10 @@ export function Rejections({ rejected, onContinue }: { rejected: Rejection[]; on
           out, and their sales and dividends as money put in.
         </p>
       )}
-      {(unsupported.length > 0 || canContinue) && (
+      {(canRequest || canContinue) && (
         <div className="actions">
-          {unsupported.map((r) => (
-            <RequestTickers key={r.message} tickers={r.tickers!} />
-          ))}
+          {canRequest &&
+            unsupported.map((r) => <RequestTickers key={r.message} tickers={r.tickers!} onLoaded={onLoaded} />)}
           {canContinue && (
             <button type="button" className="button secondary" onClick={() => onContinue(rejected.flatMap((r) => r.tickers!))}>
               Continue without these holdings

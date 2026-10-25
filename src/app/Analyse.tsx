@@ -37,11 +37,12 @@ type Props = {
   onAddFiles: (files: InputFile[]) => void;
   onTiming: (t: FlowTiming) => void;
   onExclude: (tickers: string[]) => void;
+  onRetry: () => void;
   onRemove: () => void;
 };
 
 // Decision "Analyse page is for your own file": no sample here. Sections render only when their data exists.
-export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming, onExclude, onRemove }: Props) {
+export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming, onExclude, onRetry, onRemove }: Props) {
   const actions = (
     <div className="upload-block">
       <BrokerPicker value={broker} onChange={onBroker} />
@@ -108,11 +109,11 @@ export function Analyse({ file, broker, onBroker, onFiles, onAddFiles, onTiming,
           {names.length > 1 ? 'Your files' : 'Your file'}
           <span className="hero-files">{filesLine}</span>
         </p>
-        {file.kind === 'running' && <p>Calculating.</p>}
+        {file.kind === 'running' && <p role="status">Calculating.</p>}
         {file.kind === 'error' && <p role="alert">{LOAD_ERROR}</p>}
         {file.kind === 'mismatch' && <p role="alert">{file.message}</p>}
         {file.kind === 'empty' && <EmptyState />}
-        {file.kind === 'rejected' && <Rejections rejected={file.rejected} onContinue={onExclude} />}
+        {file.kind === 'rejected' && <Rejections rejected={file.rejected} onContinue={onExclude} onLoaded={onRetry} />}
         {file.kind === 'rejected' && file.converted && (
           <ConvertedDownloads files={file.converted} note={file.rejected.some((r) => r.line !== null) ? LINES_NOTE : null} />
         )}

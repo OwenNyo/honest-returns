@@ -52,7 +52,7 @@ export async function runUpload(
     availability.push({
       line: null,
       code: 'prices_not_loaded',
-      message: `Prices for ${list(notLoaded)} are not loaded yet. Try again tomorrow.`,
+      message: `Prices for ${list(notLoaded)} are not loaded yet. Try again in an hour.`,
       tickers: notLoaded,
     });
   if (availability.length) return { kind: 'rejected', rejected: availability };
