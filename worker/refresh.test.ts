@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { appendYearRows, lastTradingDay, refresh, takeBudget } from './refresh';
+import { appendYearRows, lastTradingDay, refresh, refreshStale, takeBudget } from './refresh';
 
 const testEnv = () => ({ DB: env.DB, TIINGO_TOKEN: 'test-token' });
 const NIGHT = new Date('2026-10-24T23:00:00Z'); // not the FX hour
@@ -467,3 +467,117 @@ describe('queued ticker requests', () => {
   });
 });
 
+// Task 45, spec 19.6: stale tickers served by /api/prices are fetched first, within the shared budget.
+describe('refreshStale', () => {
+  const MON = new Date('2026-10-26T23:00:00Z'); // last trading day 2026-10-26, today 2026-10-26
+
+  test('stale fetch: a ticker whose last bar is before the last trading day is fetched from the next day', async () => {
+    await seedTickers([['TSTA', 0, '2026-10-23', '2026-10-24']]);
+    const s = stub({ TSTA: () => Response.json([item('2026-10-26', 10)]) });
+    await refreshStale(testEnv(), ['TSTA'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual(['TSTA']);
+    expect(new URL(s.calls[0].url).searchParams.get('startDate')).toBe('2026-10-24');
+    expect(await tickerRow('TSTA')).toEqual({ last_date: '2026-10-26', refreshed_on: '2026-10-26' });
+  });
+
+  test('a ticker up to the last trading day is not fetched', async () => {
+    await seedTickers([['TSTA', 0, '2026-10-26', '2026-10-25']]);
+    const s = stub({});
+    await refreshStale(testEnv(), ['TSTA'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual([]);
+  });
+
+  test('refreshed today is not fetched again', async () => {
+    await seedTickers([['TSTA', 0, '2026-10-23', '2026-10-26']]);
+    const s = stub({});
+    await refreshStale(testEnv(), ['TSTA'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual([]);
+  });
+
+  test('a ticker never backfilled is backfilled from 2005-01-01', async () => {
+    await seedTickers([['TSTA', 0, null, null]]);
+    const s = stub({});
+    await refreshStale(testEnv(), ['TSTA'], MON, s.fetchFn);
+    expect(new URL(s.calls[0].url).searchParams.get('startDate')).toBe('2005-01-01');
+  });
+
+  test('budget spent: nothing is fetched and stored prices stay', async () => {
+    await setBudget(MON, 40);
+    await seedTickers([['TSTA', 0, '2026-10-23', '2026-10-24']]);
+    const s = stub({ TSTA: () => Response.json([item('2026-10-26', 10)]) });
+    await refreshStale(testEnv(), ['TSTA'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual([]);
+    expect((await tickerRow('TSTA'))!.last_date).toBe('2026-10-23');
+  });
+
+  test('budget shared: only the calls left this hour are made', async () => {
+    await setBudget(MON, 38);
+    await seedTickers([
+      ['TSTA', 0, '2026-10-23', '2026-10-24'],
+      ['TSTB', 0, '2026-10-23', '2026-10-24'],
+      ['TSTC', 0, '2026-10-23', '2026-10-24'],
+    ]);
+    const s = stub({});
+    await refreshStale(testEnv(), ['TSTA', 'TSTB', 'TSTC'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual(['TSTA', 'TSTB']);
+  });
+
+  // Spec 19.13: at the symbol cap a ticker not refreshed this month is served as stored.
+  test('symbol cap: a new symbol is not fetched, a symbol refreshed this month is', async () => {
+    await env.DB.batch(
+      Array.from({ length: 480 }, (_, i) =>
+        env.DB.prepare("INSERT INTO ticker_requests (ticker, requested_on, status, resolved_on) VALUES (?, '2026-10-02', 'not_found', '2026-10-02')").bind(`N${i}`),
+      ),
+    );
+    try {
+      await seedTickers([
+        ['TSTA', 0, '2026-10-23', '2026-09-30'],
+        ['TSTB', 0, '2026-10-23', '2026-10-02'],
+      ]);
+      const s = stub({});
+      await refreshStale(testEnv(), ['TSTA', 'TSTB'], MON, s.fetchFn);
+      expect(s.tiingoTickers()).toEqual(['TSTB']);
+    } finally {
+      await env.DB.prepare('DELETE FROM ticker_requests').run();
+    }
+  });
+
+  test('HTTP 429 ends the fetches', async () => {
+    await seedTickers([
+      ['TSTA', 0, '2026-10-23', '2026-10-24'],
+      ['TSTB', 0, '2026-10-23', '2026-10-24'],
+    ]);
+    const s = stub({ TSTA: () => new Response('slow down', { status: 429 }) });
+    await refreshStale(testEnv(), ['TSTA', 'TSTB'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual(['TSTA']);
+  });
+
+  test('last_used is set to today for every known requested ticker', async () => {
+    await seedTickers([['TSTA', 0, '2026-10-23', '2026-10-24', '2026-10-01']]);
+    await refreshStale(testEnv(), ['TSTA', 'NOPE'], MON, stub({}).fetchFn);
+    expect(await lastUsed('TSTA')).toBe('2026-10-26');
+    expect(await env.DB.prepare('SELECT 1 FROM tickers WHERE ticker = ?').bind('NOPE').first()).toBeNull();
+  });
+
+  test('last_used is set even when nothing is stale or the budget is spent', async () => {
+    await setBudget(MON, 40);
+    await seedTickers([
+      ['TSTA', 0, '2026-10-23', '2026-10-24', null],
+      ['TSTB', 0, '2026-10-26', '2026-10-26', null],
+    ]);
+    await refreshStale(testEnv(), ['TSTA', 'TSTB'], MON, stub({}).fetchFn);
+    expect(await lastUsed('TSTA')).toBe('2026-10-26');
+    expect(await lastUsed('TSTB')).toBe('2026-10-26');
+  });
+
+  test('tickers not requested are not touched', async () => {
+    await seedTickers([
+      ['TSTA', 0, '2026-10-26', '2026-10-26', '2026-10-01'],
+      ['TSTB', 0, '2026-10-23', '2026-10-24', '2026-10-01'],
+    ]);
+    const s = stub({});
+    await refreshStale(testEnv(), ['TSTA'], MON, s.fetchFn);
+    expect(s.tiingoTickers()).toEqual([]);
+    expect(await lastUsed('TSTB')).toBe('2026-10-01');
+  });
+});

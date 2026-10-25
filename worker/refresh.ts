@@ -124,6 +124,32 @@ export async function refresh(
   return { fetched, fxUpdated };
 }
 
+// Spec 19.6: marks the served tickers used today, then fetches the stale ones while the budget lasts.
+// Stale = last bar before the last trading day and not fetched yet today (spec 19.3).
+// ponytail: many stale tickers are fetched one call at a time inside the user's request (up to 40, about 0.3 s each),
+// once a day per ticker; cap the fetches per request if the wait shows.
+export async function refreshStale(env: Env, tickers: string[], now: Date, fetchFn: typeof fetch = fetch): Promise<void> {
+  const db = env.DB;
+  const today = now.toISOString().slice(0, 10);
+  const marks = tickers.map(() => '?').join(',');
+  await db
+    .prepare(`UPDATE tickers SET last_used = ?1 WHERE ticker IN (${marks}) AND (last_used IS NULL OR last_used < ?1)`)
+    .bind(today, ...tickers)
+    .run();
+  const stale = await db
+    .prepare(
+      'SELECT ticker, last_date, refreshed_on FROM tickers WHERE (last_date IS NULL OR last_date < ?1) ' +
+        `AND (refreshed_on IS NULL OR refreshed_on < ?2) AND ticker IN (${marks}) ORDER BY ticker`,
+    )
+    .bind(lastTradingDay(now), today, ...tickers)
+    .all<{ ticker: string; last_date: string | null; refreshed_on: string | null }>();
+  for (const { ticker, last_date, refreshed_on } of stale.results) {
+    if (newSymbol(refreshed_on, today) && (await atSymbolCap(db, today))) continue; // spec 19.13: served as stored
+    if (!(await takeBudget(db, now))) return;
+    if ((await updateTicker(env, ticker, last_date, today, fetchFn)) === 'stop') return;
+  }
+}
+
 // Spec 19.5: backfills a new ticker and records the request as added or not_found. The request row is upserted
 // (requested_on kept while queued, else today, so a not_found from an earlier month counts in this month's cap), because
 // the request endpoint may have no row yet. The caller claims the budget.

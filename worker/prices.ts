@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { PricesQuery } from '../src/shared/api';
 import type { Env } from './index';
+import { lastStoredDate, refreshStale } from './refresh';
 
 // Strips the outer brackets of a stored JSON array: '[[a],[b]]' -> '[a],[b]'.
 const inner = (rows: string) => rows.slice(1, -1);
@@ -15,6 +16,10 @@ export async function getPrices(c: Context<{ Bindings: Env }>) {
   const db = c.env.DB;
   const marks = tickers.map(() => '?').join(',');
 
+  // Spec 19.6: stale tickers are brought up to date first when the budget allows; otherwise they are served as stored.
+  // A failed refresh (a D1 error, an unexpected Tiingo body) is logged and never blocks the answer.
+  if (tickers.length)
+    await refreshStale(c.env, tickers, new Date()).catch((e) => console.error(`prices: refresh failed, serving stored: ${e}`));
   const known = tickers.length
     ? (
         await db
@@ -43,11 +48,13 @@ export async function getPrices(c: Context<{ Bindings: Env }>) {
     .results.map((r) => r.rows);
 
   // asOf = min(last_date of available tickers, last fx date); null if either is missing. No tickers requested: the last fx date.
-  const lastFx = fxRows.length ? /"(\d{4}-\d{2}-\d{2})"[^\]]*\]\]$/.exec(fxRows[fxRows.length - 1])?.[1] : undefined;
+  const lastFx = fxRows.length ? lastStoredDate(fxRows[fxRows.length - 1]) : undefined;
   const asOf = lastFx && (available.length || !tickers.length) ? [...available.map((t) => lastDate.get(t)!), lastFx].sort()[0] : null;
 
   const prices = [...byTicker].map(([t, rows]) => `${JSON.stringify(t)}:${joinRows(rows)}`).join(',');
   const body = `{"asOf":${JSON.stringify(asOf)},"prices":{${prices}},"fx":${joinRows(fxRows)},"unavailable":${JSON.stringify(unavailable)}}`;
-  // An empty answer (no prices yet) must not be cached, or a browser keeps showing it after the data arrives.
-  return c.body(body, 200, { 'Content-Type': 'application/json', 'Cache-Control': asOf ? 'public, max-age=3600' : 'no-store' });
+  // An empty answer (no prices yet) or one with unavailable tickers must not be cached, or a browser keeps showing it
+  // after the data arrives (the re-run after a ticker request, spec 19.6).
+  const cache = asOf && unavailable.length === 0 ? 'public, max-age=3600' : 'no-store';
+  return c.body(body, 200, { 'Content-Type': 'application/json', 'Cache-Control': cache });
 }

@@ -12,7 +12,20 @@ const FX_2018 = '[["2018-12-31","1.36"]]';
 const FX_2019 = '[["2019-01-02","1.3612"]]';
 const FX_2020 = '[["2020-01-02","1.35"],["2020-12-30","1.33"]]';
 
+// Spec 19.8: the seeded tickers are stale against the real clock, so the budget for this hour and the next is spent
+// and the endpoint never reaches the real fetch.
+const hourKey = (d: Date) => d.toISOString().slice(0, 13);
+const spendBudget = () => {
+  const now = new Date();
+  return env.DB.batch(
+    [now, new Date(now.getTime() + 3_600_000)].map((d) =>
+      env.DB.prepare('INSERT OR REPLACE INTO budget (hour, used) VALUES (?, 40)').bind(hourKey(d)),
+    ),
+  );
+};
+
 beforeEach(async () => {
+  await spendBudget();
   await env.DB.batch([
     env.DB.prepare('DELETE FROM prices'),
     env.DB.prepare('DELETE FROM fx'),
@@ -126,4 +139,35 @@ test('an empty answer is not cacheable', async () => {
 test('the body matches the shared PricesResponse schema', async () => {
   const b = await body('tickers=TSTA,NOPE9,TSTC&from=2019-01-02');
   expect(PricesResponse.safeParse(b).success).toBe(true);
+});
+
+// Task 45, spec 19.6: an answer with unavailable tickers is not cached, so the re-run after a ticker loads reads fresh data.
+test('no-store when unavailable is non-empty', async () => {
+  const res = await get('tickers=TSTA,ZZZZ&from=2019-01-02');
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+  expect(((await res.json()) as any).asOf).not.toBeNull();
+});
+
+test('cached for an hour when everything is available', async () => {
+  const res = await get('tickers=TSTA,TSTB&from=2019-01-02');
+  expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600');
+});
+
+test('a served ticker gets last_used today', async () => {
+  await get('tickers=TSTA&from=2019-01-02');
+  const row = await env.DB.prepare('SELECT last_used FROM tickers WHERE ticker = ?').bind('TSTA').first<{ last_used: string }>();
+  expect(row!.last_used).toBe(new Date().toISOString().slice(0, 10));
+});
+
+// Spec 19.6: a failed refresh never blocks the answer; stored prices are served. The budget table is renamed so
+// takeBudget throws before any fetch.
+test('a failed refresh still serves the stored prices', async () => {
+  await env.DB.prepare('ALTER TABLE budget RENAME TO budget_off').run();
+  try {
+    const res = await get('tickers=TSTA&from=2019-01-02');
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).asOf).toBe('2020-08-31');
+  } finally {
+    await env.DB.prepare('ALTER TABLE budget_off RENAME TO budget').run();
+  }
 });
