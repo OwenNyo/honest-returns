@@ -471,7 +471,7 @@ Branch for these tasks: a feature branch off `dev`, merged back into `dev`. `mas
 - Produces: `cardData(result, includeSgd): CardData`; `drawCard(ctx, data, size: '1200x630' | '1080x1080', tokens): void`; `downloadCard(result, size, includeSgd): Promise<void>`.
 
 - [ ] **Step 1: Write failing tests** with a fake context that records `fillText` strings and `fillStyle` at each call, and stubs `measureText`:
-  - Golden A result with `includeSgd: false`: the recorded text contains `+5.0%`, `+6.3%`, `in total`, the explanation, `28 Aug 2020 to 1 Sep 2020`, `honest-returns.owennyowy.workers.dev`; and no string contains `AAPL`, `SGD`, or a file name.
+  - Golden A result with `includeSgd: false`: the recorded text contains `+5.0%`, `+6.3%`, `in total`, the explanation, `28 Aug 2020 to 1 Sep 2020`, `honest-returns.owennyo.com`; and no string contains `AAPL`, `SGD`, or a file name.
   - `includeSgd: true`: contains `Value SGD 1,998.00, money in SGD 1,900.00`.
   - XIRR undefined: contains `Cannot be calculated`; no band is drawn (no `fillRect` in Brass).
   - `cardData` has no ledger or ticker field (a type-level check: `// @ts-expect-error` on `cardData(...).ledger`).

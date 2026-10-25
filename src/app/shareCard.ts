@@ -19,7 +19,7 @@ export interface CardData {
   sgdLine: string | null;
 }
 
-export const SITE = 'honest-returns.owennyowy.workers.dev';
+export const SITE = 'honest-returns.owennyo.com';
 
 export function cardData(result: Ok, includeSgd: boolean, excluded?: Excluded | null): CardData {
   const first = result.series[0];

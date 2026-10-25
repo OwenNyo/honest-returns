@@ -1,6 +1,9 @@
 {
   "name": "honest-returns",
   "main": "worker/index.ts",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "honest-returns.owennyo.com", "custom_domain": true }],
   "compatibility_date": "2026-10-01",
   "assets": { "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
   "d1_databases": [{ "binding": "DB", "database_name": "honest-returns", "database_id": "023ab786-f679-4170-9793-f1142f256b06", "migrations_dir": "migrations" }],

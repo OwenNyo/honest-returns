@@ -12,7 +12,7 @@ Owen runs these steps. They need a Cloudflare login, so the driver only checked 
 
 ## Each deploy
 
-5. `npm run deploy` (runs `vite build`, then `wrangler deploy`). It prints the `*.workers.dev` URL.
+5. `npm run deploy` (runs `vite build`, then `wrangler deploy`). It deploys to the custom domain `honest-returns.owennyo.com`; the `*.workers.dev` and preview URLs are off in `wrangler.jsonc`.
    If `migrations/` has a file the remote database has not run yet (for example `0003_ticker_requests.sql`), run step 3 first.
 6. To undo a bad deploy: `npx wrangler rollback`.
 
@@ -24,7 +24,7 @@ Owen runs these steps. They need a Cloudflare login, so the driver only checked 
 
 ## Check
 
-10. `curl "https://<your-worker>.workers.dev/api/prices?tickers=VOO,AAPL&from=2019-01-02" | head -c 300`. Expect a non-null `asOf` and `"unavailable":[]`.
+10. `curl "https://honest-returns.owennyo.com/api/prices?tickers=VOO,AAPL&from=2019-01-02" | head -c 300`. Expect a non-null `asOf` and `"unavailable":[]`.
 11. Open the landing page on a phone. Check the TWR and XIRR numbers, the number line, the sentence and the chart, then upload a CSV with `Check your own broker file`.
 
 ## Run the cron locally

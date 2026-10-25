@@ -1040,7 +1040,7 @@ Contents, always:
 - TWR and XIRR: label, value via `formatPct(…, 1)`, unit `a year` or `in total`, in Pencil blue and Ledger green. If XIRR is undefined: `Cannot be calculated` and no gap band (as `Hero` does).
 - The number line: axis in Rule, ticks from `numberLineScale`, the gap band in Brass between the two marks, the marks in their colours, the gap label `{n} points` in Brass.
 - The explanation sentence (`result.explanation`) in Source Serif 4, wrapped by `measureText`, at most 3 lines (at the sizes below every rule in 10.7 fits in 3 lines; if a future sentence does not, the font steps down 2 px until it does).
-- `honest-returns.owennyowy.workers.dev` in Faded at the bottom.
+- `honest-returns.owennyo.com` in Faded at the bottom.
 
 Contents with `Include SGD values` on: one more line, `Value {formatSgd(last.valueSgd)}, money in {formatSgd(last.netInvestedSgd)}`.
 
@@ -1068,9 +1068,9 @@ Layout (px, 64 margin):
 | XIRR is lower than TWR because 85% of your   |   |              6.8 points              |
 | deposits arrived after 2019, ... (serif 30)  |   | XIRR is lower than TWR because 85%   |
 |##############################################|   | of your deposits ... (serif 36)      |
-|# honest-returns.owennyowy.workers.dev       #|   |                                      |
+|# honest-returns.owennyo.com       #|   |                                      |
 |##############################################|   |######################################|
-+----------------------------------------------+   |# honest-returns.owennyowy.workers.dev#|
++----------------------------------------------+   |# honest-returns.owennyo.com#|
                                                    +--------------------------------------+
 ```
 
